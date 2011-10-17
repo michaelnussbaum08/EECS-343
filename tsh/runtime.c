@@ -318,6 +318,15 @@ Exec(commandT* cmd, bool forceFork)
 	char *pathtoken;
 	char attemptPath[256];
 	bool onPath = FALSE;
+        bool make_bg = FALSE;
+        // if bg command then remove "&" so cmd is found
+        if (is_bg(cmd))
+        {
+            //TODO: check if & is last argv or last char of last argv
+            make_bg = TRUE;
+            cmd->argv[(cmd->argc)-1] = 0;
+            cmd->argc--;
+        }
 
 	if(!FileExists(cmd->name)) //if you cant find it locally, we need to go find it on the path
 	{
@@ -351,7 +360,7 @@ Exec(commandT* cmd, bool forceFork)
 
 		if(pid == 0) //Child
 			execv(attemptPath,cmd->argv);
-		else if (is_bg(cmd)) //Parent
+		else if (make_bg) //Parent
 		{
                     push_bg_job(pid);
 		}
