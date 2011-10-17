@@ -63,18 +63,7 @@ typedef struct command_t
   char* argv[];
 } commandT;
 
-typedef struct job_t
-{
-  commandT *cmd;
-  pid_t pid;
-  int job_num;
-} jobT;
-
-
 /************Global Variables*********************************************/
-
-int MAXJOBS = 100;
-jobT *job_stack[MAXJOBS];
 
 /***********************************************************************
  *  Title: Force a program exit

@@ -73,11 +73,21 @@
 typedef struct bgjob_l
 {
 	pid_t pid;
+        int start_position;
 	struct bgjob_l* next;
 } bgjobL;
 
 /* the pids of the background processes */
 bgjobL *bgjobs = NULL;
+
+int
+push_bg_job(pid_t);
+
+bgjobL*
+pop_bg_job(pid_t);
+
+int
+size_of_bgjobs(void);
 
 /************Function Prototypes******************************************/
 /* run command */
@@ -100,7 +110,7 @@ static bool
 IsBuiltIn(char*);
 
 bool
-check_bg_job(commandT *cmd);
+is_bg(commandT *cmd);
 int
 job_stack_size();
 /************External Declaration*****************************************/
@@ -341,17 +351,9 @@ Exec(commandT* cmd, bool forceFork)
 
 		if(pid == 0) //Child
 			execv(attemptPath,cmd->argv);
-		else if (check_bg_job(cmd)) //Parent
+		else if (is_bg(cmd)) //Parent
 		{
-                    int j_s_size = job_stack_size();
-                    if (j_s_size < MAXJOBS){
-                        //TODO: check if this malloc is correct
-                        jobT* job = malloc(sizeof(jobT));
-                        job->cmd = cmd;
-                        job->pid = pid;
-                        job->job_num = j_s_size + 1;
-                        job_stack[j_s_size] = job;
-                    }
+                    push_bg_job(pid);
 		}
                 else {
 			wait(NULL); // wait for child to finish
@@ -364,24 +366,73 @@ Exec(commandT* cmd, bool forceFork)
 } /* Exec */
 
 int
-job_stack_size(void){
-    int i = 0;
-    int max_job_num = 0;
-    for(i=0; i < MAXJOBS; i++){
-        if(job_stack[i] != NULL){
-            max_job_num = i;
+push_bg_job(pid_t pid)
+{
+    bgjobL *job = malloc(sizeof(bgjobL));
+    if(job)
+    {
+        job->pid = pid;
+        job->next = bgjobs;
+        if (bgjobs != NULL)
+        {
+            job->start_position = bgjobs->start_position + 1;
         }
+        else
+        {
+            job->start_position = 1;
+        }
+        bgjobs = job;
     }
-    return max_job_num;
+    return -1;
 }
 
+bgjobL*
+pop_bg_job(pid_t pid)
+{
+    bgjobL* prev_job = NULL;
+    bgjobL* top_job = bgjobs;
+    while(top_job != NULL)
+    {
+        if (pid == top_job->pid)
+        {
+            if(prev_job != NULL){
+                prev_job->next = top_job->next;
+            }
+            top_job->next = NULL;
+            return top_job;
+        } else
+        {
+            prev_job = top_job;
+            top_job = top_job->next;
+        }
+    }
+    return NULL;
+}
+
+int
+size_of_bgjobs(void)
+{
+    int size = 0;
+    bgjobL* top_job = bgjobs;
+    while(top_job != NULL){
+        size++;
+        top_job = top_job->next;
+    }
+    return size;
+}
+
+
+
 bool
-check_bg_job(commandT *cmd){
-    if (strcmp(cmd->argv[(cmd->argc)-1], "&") == 0){
+is_bg(commandT *cmd)
+{
+    if (strcmp(cmd->argv[(cmd->argc)-1], "&") == 0)
+    {
         return TRUE;
     }
     int last_arg_len = strlen(cmd->argv[(cmd->argc)-1]);
-    if (cmd->argv[(cmd->argc)-1][last_arg_len-1] == '&'){
+    if (cmd->argv[(cmd->argc)-1][last_arg_len-1] == '&')
+    {
         return TRUE;
     }
     return FALSE;
