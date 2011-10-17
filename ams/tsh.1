@@ -1,0 +1,20 @@
+.\" Process this file with
+.\" groff -man -Tascii tsh.1
+.\"
+.TH TSH 1 "OCTOBER 2011" "NU EECS 343" "NU EECS 343 - Operating Systems - Fall 2011"
+.SH NAME
+tsh \- A tiny shell
+.SH SYNOPSIS
+.B tsh is a tiny implementation of a shell. 
+.SH DESCRIPTION
+.B
+The shell is fully featured as of the Project 1 spec. It interprets commands, running them either within the shell process or finding the file and forking a process to exec it, depending on the command.
+.SH BUILT-IN COMMANDS
+.IP exit,
+cd
+.SH DESIGN APPROACH
+I chose to keep as much as the provided framework as possible. I also tried to abstract functions that would be used multiple times, while sacrificing some efficiency to promote readability. I ran into issues in a number of areas, mainly concerning memory management. In particular, the strtok function was difficult to use as was searching the path. The extra credit tasks are all completed, including the .*rc file, the PS1 variable and general environment variable setting and unsetting.
+.SH AUTHOR
+Aaron Steinfeld
+ams303
+asteinfeld@u.northwestern.edu
