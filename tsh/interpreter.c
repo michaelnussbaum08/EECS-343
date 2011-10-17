@@ -1,5 +1,5 @@
 /***************************************************************************
- *  Title: Input 
+ *  Title: Input
  * -------------------------------------------------------------------------
  *    Purpose: Handles the input from stdin
  *    Author: Stefan Birrer
@@ -102,18 +102,17 @@ Interpret(char* cmdLine)
   int i = 0;
   commandT* cmd = getCommand(cmdLine);
 
- // printf("argc: %d\n", cmd->argc);
+  // printf("argc: %d\n", cmd->argc);
   for (i = 0; cmd->argv[i] != 0; i++)
     {
       //printf("#%d|%s|\n", i, cmd->argv[i]);
     }
-  
+
   if(!isComment(cmd)) //check for comments
   {
   	if(!HandleEnvironment(cmd)) //check if environment update
   		RunCmd(cmd);  //otherwise run the command
   }
-  freeCommand(cmd);
 } /* Interpret */
 
 
@@ -168,16 +167,16 @@ getCommand(char* cmdLine)
               //printf("\t\tend of argument %d, got:%s\n", cmd.argc, tmp);
              /* Remove new line chars */
 	      cmd->argv[cmd->argc] = malloc(sizeof(char) * (tmpLen + 1));
-              
+
 	      if(tmp[0] == '$')
 	      {
-		strncpy(envtmp, tmp+1,BUFSIZE-1); 
+		strncpy(envtmp, tmp+1,BUFSIZE-1);
 		char *envtmp1 = getenv(envtmp);
 	        if(envtmp1 != NULL)
 		{
 			cmd->argv[cmd->argc] = realloc(cmd->argv[cmd->argc], strlen(envtmp1));
 			strcpy(cmd->argv[cmd->argc], envtmp1);
-	      
+
 		}
 		else
 			cmd->argv[cmd->argc][0] = 0;
@@ -261,8 +260,8 @@ getCommand(char* cmdLine)
     {
       //printf("\t\tend of argument %d, got:%s\n", cmd.argc, tmp);
       cmd->argv[cmd->argc] = malloc(sizeof(char) * (tmpLen + 1));
-      
-      if(tmp[0] == '$')	
+
+      if(tmp[0] == '$')
       {
 	strncpy(envtmp,tmp+1,BUFSIZE - 1);
 	char *envtmp2 = getenv(envtmp);
@@ -341,7 +340,7 @@ HandleEnvironment(commandT* cmd)
  	char *envCommand = memcpy(malloc(len), cmd->argv[0], len); //copy name into new memory
 	char *envToken = strtok(envCommand,"="); //break up envCommand at =
 	while(envToken != NULL) //parse through it
-	{	
+	{
 		if(envCommandSection > 1) //if we hit this, there are multiple = signs
 		{
 			validSyntax = FALSE;
@@ -374,11 +373,11 @@ HandleEnvironment(commandT* cmd)
 		setenv(envCommandArray[0], envCommandArray[1], 1);
 	else if(validSyntax && specialCase) //if correct null asignment, unsetenv
 		unsetenv(envCommandArray[0]);
-	
+
 	free(envCommand);
 	free(envCommandArray[0]);
 	free(envCommandArray[1]);
-	
+
 	return validSyntax;
 }
 

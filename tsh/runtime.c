@@ -57,6 +57,7 @@
 
 /************Private include**********************************************/
 #include "runtime.h"
+#include "interpreter.h"
 #include "io.h"
 
 /************Defines and Typedefs*****************************************/
@@ -70,26 +71,17 @@
 
 #define NBUILTINCOMMANDS (sizeof BuiltInCommands / sizeof(char*))
 
-typedef struct bgjob_l
-{
-	pid_t pid;
-        int start_position;
-	struct bgjob_l* next;
-} bgjobL;
-
 /* the pids of the background processes */
 bgjobL *bgjobs = NULL;
 
-int
-push_bg_job(pid_t);
-
-bgjobL*
-pop_bg_job(pid_t);
-
-int
-size_of_bgjobs(void);
-
+const int JOB_RUNNING = 0;
+const int JOB_STOPPED = 1;
+const int JOB_DONE = 2;
 /************Function Prototypes******************************************/
+
+EXTERN void
+freeCommand(commandT* cmd);
+
 /* run command */
 static void
 RunCmdFork(commandT*, bool);
@@ -113,6 +105,16 @@ bool
 is_bg(commandT *cmd);
 int
 job_stack_size();
+
+int
+push_bg_job(pid_t, commandT*);
+
+bgjobL*
+pop_bg_job(pid_t);
+
+int
+size_of_bgjobs(void);
+
 /************External Declaration*****************************************/
 
 /**************Implementation***********************************************/
@@ -253,6 +255,7 @@ RunExternalCmd(commandT* cmd, bool fork)
 		Print(cmd->name);
 		Print(": ");
 		Print("No such file or directory\n");
+                freeCommand(cmd);
 	}
 }  /* RunExternalCmd */
 
@@ -319,14 +322,8 @@ Exec(commandT* cmd, bool forceFork)
 	char attemptPath[256];
 	bool onPath = FALSE;
         bool make_bg = FALSE;
-        // if bg command then remove "&" so cmd is found
-        if (is_bg(cmd))
-        {
-            //TODO: check if & is last argv or last char of last argv
+        if(is_bg(cmd))
             make_bg = TRUE;
-            cmd->argv[(cmd->argc)-1] = 0;
-            cmd->argc--;
-        }
 
 	if(!FileExists(cmd->name)) //if you cant find it locally, we need to go find it on the path
 	{
@@ -360,39 +357,41 @@ Exec(commandT* cmd, bool forceFork)
 
 		if(pid == 0) //Child
 			execv(attemptPath,cmd->argv);
-		else if (make_bg) //Parent
-		{
-                    push_bg_job(pid);
-		}
-                else {
-			wait(NULL); // wait for child to finish
+                if (make_bg)
+                    push_bg_job(pid, cmd);
+                else
+                {
+                    wait(NULL); // wait for child to finish
+                    freeCommand(cmd);
                 }
-	}
-	else
-	{
-		execv(attemptPath,cmd->argv); //exec without forking
-	}
+        } else
+	    execv(attemptPath,cmd->argv); //exec without forking
+
 } /* Exec */
 
 int
-push_bg_job(pid_t pid)
+push_bg_job(pid_t pid, commandT* cmd)
 {
     bgjobL *job = malloc(sizeof(bgjobL));
     if(job)
     {
         job->pid = pid;
+        job->cmd = cmd;
         job->next = bgjobs;
         if (bgjobs != NULL)
-        {
             job->start_position = bgjobs->start_position + 1;
-        }
         else
-        {
             job->start_position = 1;
-        }
         bgjobs = job;
     }
     return -1;
+}
+
+void
+free_job(bgjobL* job)
+{
+    freeCommand(job->cmd);
+    free(job);
 }
 
 bgjobL*
@@ -405,8 +404,11 @@ pop_bg_job(pid_t pid)
         if (pid == top_job->pid)
         {
             if(prev_job != NULL){
+                // if not first thing on stack
                 prev_job->next = top_job->next;
             }
+            else
+                bgjobs = top_job->next; // first thing on stack
             top_job->next = NULL;
             return top_job;
         } else
@@ -437,11 +439,16 @@ is_bg(commandT *cmd)
 {
     if (strcmp(cmd->argv[(cmd->argc)-1], "&") == 0)
     {
+        // last arg is "&"
+        cmd->argv[(cmd->argc)-1] = 0;
+        cmd->argc--;
         return TRUE;
     }
     int last_arg_len = strlen(cmd->argv[(cmd->argc)-1]);
     if (cmd->argv[(cmd->argc)-1][last_arg_len-1] == '&')
     {
+        // last char of last arg is "&"
+        cmd->argv[(cmd->argc)-1][last_arg_len-1] = '\0';
         return TRUE;
     }
     return FALSE;
@@ -505,6 +512,7 @@ char *path = malloc(sizeof(char) * 256);
 			Print("Directory could not be found.\n");
 	}
 	free(path);
+        freeCommand(cmd);
 } /* RunBuiltInCmd */
 
 
@@ -520,8 +528,59 @@ char *path = malloc(sizeof(char) * 256);
 	void
 CheckJobs()
 {
-
+   // loop through stack, if a process is done, pop and print
+   bgjobL* prev_job = NULL;
+   bgjobL* top_job = bgjobs;
+   while(top_job != NULL)
+   {
+       if(job_done(top_job))
+       {
+           prev_job = top_job;
+           top_job = top_job->next;
+           print_job(pop_bg_job(prev_job->pid), JOB_DONE);
+           free_job(prev_job);
+       }
+       else
+           top_job = top_job->next;
+   }
 } /* CheckJobs */
+
+bool
+job_done(bgjobL* job)
+{
+    int Stat;
+    pid_t wpid;
+    do
+    {
+        wpid = waitpid(job->pid, &Stat, WNOHANG);
+    } while (wpid == 0);
+
+    return (WIFEXITED(Stat) || WIFSIGNALED(Stat));
+
+}
+
+void
+print_job(bgjobL* job, const int status)
+{
+    char *stat_msg = malloc(sizeof(char) * 20);
+    switch(status){
+        case 0:
+            strcpy(stat_msg, "Running");
+            break;
+        case 1:
+            strcpy(stat_msg, "Stopped");
+            break;
+        case 2:
+            strcpy(stat_msg, "Done");
+            break;
+    }
+    printf("[%d] %s ", job->start_position, stat_msg);
+    int i = 0;
+    for(i=0; i < job->cmd->argc; i++)
+        printf("%s ", job->cmd->argv[i]);
+    printf("\n");
+}
+
 
 /*
  * FileExists

@@ -184,6 +184,23 @@ getLogin();
 EXTERN void
 CheckJobs();
 
+typedef struct bgjob_l
+{
+	pid_t pid;
+        commandT* cmd;
+        int start_position;
+	struct bgjob_l* next;
+} bgjobL;
+
+bool
+job_done(bgjobL *);
+
+void
+free_job(bgjobL*);
+
+void
+print_job(bgjobL *, const int);
+
 /*MY FILE EXISTENCE FUNC*/
 int
 FileExists(char *);
