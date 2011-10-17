@@ -112,7 +112,11 @@ Interpret(char* cmdLine)
   {
   	if(!HandleEnvironment(cmd)) //check if environment update
   		RunCmd(cmd);  //otherwise run the command
+        else
+            freeCommand(cmd);
   }
+  else
+    freeCommand(cmd);
 } /* Interpret */
 
 

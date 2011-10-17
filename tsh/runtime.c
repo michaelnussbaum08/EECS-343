@@ -470,9 +470,10 @@ is_bg(commandT *cmd)
 	static bool
 IsBuiltIn(char* cmd)
 {
-	if(strcmp( cmd, "cd")==0) // only built in we need to worry about as of now
-		return TRUE;
-	return FALSE;
+    // only built in we need to worry about as of now
+    if(strcmp( cmd, "cd")==0 || strcmp(cmd, "jobs") == 0)
+        return TRUE;
+    return FALSE;
 } /* IsBuiltIn */
 
 
@@ -489,30 +490,41 @@ IsBuiltIn(char* cmd)
 	static void
 RunBuiltInCmd(commandT* cmd)
 {
-char *envpath;
-char *path = malloc(sizeof(char) * 256);
-	if(strcmp(cmd->name, "cd")==0)
-	{
-		if(cmd->argc == 1)
-		{
-			envpath = getenv("HOME"); //get home if no argument
-			strncpy(path, envpath, 256);
-		}
-		else if(cmd->argv[1][0] == '~')
-		{
-			envpath = getenv("HOME"); //get home if tilde
-			strncpy(path, envpath, 128);
-			strncat(path, &cmd->argv[1][1], 128); //concatenate rest of arg on home directory
-		}
-		else
-		{
-			strncpy(path, cmd->argv[1], 256);
-		}
-		if(chdir(path))  //chdir returns non-zero if fail
-			Print("Directory could not be found.\n");
-	}
-	free(path);
-        freeCommand(cmd);
+    char *envpath;
+    char *path = malloc(sizeof(char) * 256);
+    if(strcmp(cmd->name, "cd")==0)
+    {
+        if(cmd->argc == 1)
+        {
+            envpath = getenv("HOME"); //get home if no argument
+            strncpy(path, envpath, 256);
+        }
+        else if(cmd->argv[1][0] == '~')
+        {
+            envpath = getenv("HOME"); //get home if tilde
+            strncpy(path, envpath, 128);
+            strncat(path, &cmd->argv[1][1], 128); //concatenate rest of arg on home directory
+        }
+        else
+        {
+            strncpy(path, cmd->argv[1], 256);
+        }
+        if(chdir(path))  //chdir returns non-zero if fail
+            Print("Directory could not be found.\n");
+    }
+    else if (strcmp(cmd->name, "jobs") == 0)
+    {
+        bgjobL *prev_job = NULL;
+        bgjobL *top_job = bgjobs;
+        while(top_job)
+        {
+            prev_job = top_job;
+            top_job = top_job->next;
+            print_job(prev_job, job_status(prev_job));
+        }
+    }
+    free(path);
+    freeCommand(cmd);
 } /* RunBuiltInCmd */
 
 
@@ -533,30 +545,30 @@ CheckJobs()
    bgjobL* top_job = bgjobs;
    while(top_job != NULL)
    {
-       if(job_done(top_job))
+       if(job_status(top_job) == JOB_DONE)
        {
            prev_job = top_job;
            top_job = top_job->next;
-           print_job(pop_bg_job(prev_job->pid), JOB_DONE);
-           free_job(prev_job);
+           print_job(prev_job, JOB_DONE);
        }
        else
            top_job = top_job->next;
    }
 } /* CheckJobs */
 
-bool
-job_done(bgjobL* job)
+int
+job_status(bgjobL* job)
 {
     int Stat;
     pid_t wpid;
-    do
-    {
-        wpid = waitpid(job->pid, &Stat, WNOHANG);
-    } while (wpid == 0);
-
-    return (WIFEXITED(Stat) || WIFSIGNALED(Stat));
-
+    wpid = waitpid(job->pid, &Stat, WNOHANG);
+    if (wpid == 0)
+        return JOB_RUNNING;
+    if (WIFEXITED(Stat) || WIFSIGNALED(Stat))
+        return JOB_DONE;
+    if (WIFSTOPPED(Stat))
+        return JOB_STOPPED;
+    return -1;
 }
 
 void
@@ -579,6 +591,11 @@ print_job(bgjobL* job, const int status)
     for(i=0; i < job->cmd->argc; i++)
         printf("%s ", job->cmd->argv[i]);
     printf("\n");
+    if (status == 2)
+    {
+        pop_bg_job(job->pid);
+        free_job(job);
+    }
 }
 
 

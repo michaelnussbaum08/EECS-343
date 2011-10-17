@@ -192,8 +192,8 @@ typedef struct bgjob_l
 	struct bgjob_l* next;
 } bgjobL;
 
-bool
-job_done(bgjobL *);
+int
+job_status(bgjobL *);
 
 void
 free_job(bgjobL*);
