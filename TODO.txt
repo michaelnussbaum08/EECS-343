@@ -1,0 +1,5 @@
+Switch to their job stack
+Determine bg printing behaviour
+print bg
+Mark bg done
+The rest of the assignment
