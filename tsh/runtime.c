@@ -1,5 +1,5 @@
 /***************************************************************************
- *  Title: Runtime environment 
+ *  Title: Runtime environment
  * -------------------------------------------------------------------------
  *    Purpose: Runs commands
  *    Author: Stefan Birrer
@@ -98,10 +98,14 @@ RunBuiltInCmd(commandT*);
 /* checks whether a command is a builtin command */
 static bool
 IsBuiltIn(char*);
+
+bool
+check_bg_job(commandT *cmd);
+int
+job_stack_size();
 /************External Declaration*****************************************/
 
 /**************Implementation***********************************************/
-
 
 /*
  * RunCmd
@@ -233,11 +237,11 @@ RunExternalCmd(commandT* cmd, bool fork)
 {
 	if (ResolveExternalCmd(cmd))
 		Exec(cmd, fork);
-	else if(strcmp(cmd->name, "exit")!=0) //if exit, let interpreter handle it  
+	else if(strcmp(cmd->name, "exit")!=0) //if exit, let interpreter handle it
 	{
 		Print("./tsh line 1: ");
 		Print(cmd->name);
-		Print(": ");  
+		Print(": ");
 		Print("No such file or directory\n");
 	}
 }  /* RunExternalCmd */
@@ -269,7 +273,7 @@ ResolveExternalCmd(commandT* cmd)
 	pathtoken = strtok(copypath,":"); //tokenize using : as delimiter
 
 	while(pathtoken != NULL)
-	{	
+	{
 		strncpy(attemptPath,pathtoken,63); //copy token into a tmp var
 		strncat(attemptPath,"/",1); //add on a slash
 		strncat(attemptPath,cmd->name,194); // and the command name
@@ -303,7 +307,7 @@ Exec(commandT* cmd, bool forceFork)
 	char *path;
 	char *pathtoken;
 	char attemptPath[256];
-	bool onPath = FALSE; 
+	bool onPath = FALSE;
 
 	if(!FileExists(cmd->name)) //if you cant find it locally, we need to go find it on the path
 	{
@@ -311,7 +315,7 @@ Exec(commandT* cmd, bool forceFork)
 		size_t const len = strlen(path)+1;
 		char *copypath = memcpy(malloc(len), path, len);
 		pathtoken = strtok(copypath,":");
-		while(pathtoken != NULL) // same as before, this time 
+		while(pathtoken != NULL) // same as before, this time
 		{
 			strncpy(attemptPath,pathtoken, 63);
 			strncat(attemptPath,"/",1);
@@ -325,28 +329,63 @@ Exec(commandT* cmd, bool forceFork)
 		}
 		free(copypath);
 	}
-	if(!onPath) //wasnt found on path, must be local/absolute 
+	if(!onPath) //wasnt found on path, must be local/absolute
 	{
 		memset(attemptPath, 0, 256);
-		memcpy(attemptPath, cmd->name,256); 
+		memcpy(attemptPath, cmd->name,256);
 	}
 
 	if(forceFork) //if told to fork...
-	{ 
+	{
 		pid = fork(); //fork
 
 		if(pid == 0) //Child
 			execv(attemptPath,cmd->argv);
-		else //Parent
+		else if (check_bg_job(cmd)) //Parent
 		{
-			wait(NULL); // wait for child to finish
+                    int j_s_size = job_stack_size();
+                    if (j_s_size < MAXJOBS){
+                        //TODO: check if this malloc is correct
+                        jobT* job = malloc(sizeof(jobT));
+                        job->cmd = cmd;
+                        job->pid = pid;
+                        job->job_num = j_s_size + 1;
+                        job_stack[j_s_size] = job;
+                    }
 		}
+                else {
+			wait(NULL); // wait for child to finish
+                }
 	}
 	else
 	{
 		execv(attemptPath,cmd->argv); //exec without forking
-	} 
+	}
 } /* Exec */
+
+int
+job_stack_size(void){
+    int i = 0;
+    int max_job_num = 0;
+    for(i=0; i < MAXJOBS; i++){
+        if(job_stack[i] != NULL){
+            max_job_num = i;
+        }
+    }
+    return max_job_num;
+}
+
+bool
+check_bg_job(commandT *cmd){
+    if (strcmp(cmd->argv[(cmd->argc)-1], "&") == 0){
+        return TRUE;
+    }
+    int last_arg_len = strlen(cmd->argv[(cmd->argc)-1]);
+    if (cmd->argv[(cmd->argc)-1][last_arg_len-1] == '&'){
+        return TRUE;
+    }
+    return FALSE;
+}
 
 
 /*
@@ -396,8 +435,8 @@ char *path = malloc(sizeof(char) * 256);
 		{
 			envpath = getenv("HOME"); //get home if tilde
 			strncpy(path, envpath, 128);
-			strncat(path, &cmd->argv[1][1], 128); //concatenate rest of arg on home directory			
-		}	
+			strncat(path, &cmd->argv[1][1], 128); //concatenate rest of arg on home directory
+		}
 		else
 		{
 			strncpy(path, cmd->argv[1], 256);
@@ -421,9 +460,10 @@ char *path = malloc(sizeof(char) * 256);
 	void
 CheckJobs()
 {
+
 } /* CheckJobs */
 
-/* 
+/*
  * FileExists
  *
  * arguments: filename to check
