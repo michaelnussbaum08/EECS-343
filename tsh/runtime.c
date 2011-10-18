@@ -463,6 +463,7 @@ is_bg(commandT *cmd)
     if (strcmp(cmd->argv[(cmd->argc)-1], "&") == 0)
     {
         // last arg is "&"
+        free(cmd->argv[(cmd->argc)-1]);
         cmd->argv[(cmd->argc)-1] = 0;
         cmd->argc--;
         return TRUE;
@@ -616,6 +617,7 @@ print_job(bgjobL* job, const int status)
         pop_bg_job(job->pid);
         free_job(job);
     }
+    free(stat_msg);
 }
 
 
