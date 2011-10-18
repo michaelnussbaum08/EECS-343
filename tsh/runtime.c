@@ -73,6 +73,7 @@
 
 /* the pids of the background processes */
 bgjobL *bgjobs = NULL;
+bgjobL *oldest_bgjob = NULL;
 
 const int JOB_RUNNING = 0;
 const int JOB_STOPPED = 1;
@@ -378,11 +379,19 @@ push_bg_job(pid_t pid, commandT* cmd)
         job->pid = pid;
         job->cmd = cmd;
         job->next = bgjobs;
+        job->prev = NULL;
         if (bgjobs != NULL)
+        {
             job->start_position = bgjobs->start_position + 1;
+            bgjobs->prev = job;
+        }
         else
+        {
             job->start_position = 1;
+            oldest_bgjob = job;
+        }
         bgjobs = job;
+        return 0;
     }
     return -1;
 }
@@ -403,13 +412,27 @@ pop_bg_job(pid_t pid)
     {
         if (pid == top_job->pid)
         {
-            if(prev_job != NULL){
-                // if not first thing on stack
+            if (prev_job == NULL)
+            {
+                bgjobs = top_job->next; // first thing on stack
+                if (top_job == oldest_bgjob)
+                    oldest_bgjob = NULL;
+            }
+            else if(prev_job != NULL && top_job != oldest_bgjob)
+            {
+                // in the middle of the stack
                 prev_job->next = top_job->next;
+                top_job->next->prev = prev_job;
             }
             else
-                bgjobs = top_job->next; // first thing on stack
+            {
+                // last thing on stack and not first
+                oldest_bgjob = top_job->prev;
+                oldest_bgjob->next = NULL;
+            }
+
             top_job->next = NULL;
+            top_job->prev = NULL;
             return top_job;
         } else
         {
@@ -514,14 +537,15 @@ RunBuiltInCmd(commandT* cmd)
     }
     else if (strcmp(cmd->name, "jobs") == 0)
     {
-        bgjobL *prev_job = NULL;
-        bgjobL *top_job = bgjobs;
-        while(top_job)
+        bgjobL* prev_job = NULL;
+        bgjobL* top_job = oldest_bgjob;
+        while(top_job != NULL)
         {
             prev_job = top_job;
-            top_job = top_job->next;
+            top_job = top_job->prev;
             print_job(prev_job, job_status(prev_job));
         }
+
     }
     free(path);
     freeCommand(cmd);
@@ -542,17 +566,13 @@ CheckJobs()
 {
    // loop through stack, if a process is done, pop and print
    bgjobL* prev_job = NULL;
-   bgjobL* top_job = bgjobs;
+   bgjobL* top_job = oldest_bgjob;
    while(top_job != NULL)
    {
-       if(job_status(top_job) == JOB_DONE)
-       {
-           prev_job = top_job;
-           top_job = top_job->next;
+       prev_job = top_job;
+       top_job = top_job->prev;
+       if(job_status(prev_job) == JOB_DONE)
            print_job(prev_job, JOB_DONE);
-       }
-       else
-           top_job = top_job->next;
    }
 } /* CheckJobs */
 

@@ -1,7 +1,7 @@
 /***************************************************************************
  *  Title: tsh
  * -------------------------------------------------------------------------
- *    Purpose: A simple shell implementation 
+ *    Purpose: A simple shell implementation
  *    Author: Stefan Birrer
  *    Version: $Revision: 1.4 $
  *    Last Modification: $Date: 2009/10/12 20:50:12 $
@@ -74,11 +74,11 @@ main(int argc, char *argv[])
     PrintPError("SIGTSTP");
 
   InitializeShell();
- 
+
   while (!forceExit) /* repeat forever */
     {
 
- 
+
       prompt = getenv("PS1"); //Check for a set PS1 variable
       if(prompt != NULL)
 	{
@@ -88,15 +88,15 @@ main(int argc, char *argv[])
       /* read command line */
       getCommandLine(&cmdLine, BUFSIZE);
 
-      /* checks the status of background jobs */
-      CheckJobs();
-
       /* interpret command and line
        * includes executing of commands */
       Interpret(cmdLine);
 
       if (strcmp(cmdLine, "exit") == 0)
         forceExit = TRUE;
+
+      if (!forceExit)
+        CheckJobs(); /* checks the status of background jobs */
     }
 
   /* shell termination */
@@ -150,12 +150,12 @@ InitializeShell()
 			if(readBuffer[read-1] == '\n')
 				readBuffer[read-1] = 0;
 			Interpret(readBuffer);
-		} 
+		}
 		fclose(file);
 	}
-	
+
 	free(configFile);
-	free(readBuffer); 
+	free(readBuffer);
 }
 
 /*
@@ -176,24 +176,24 @@ TranslatePrompt(char *prompt, char *tprompt)
  char workingdir[BUFSIZE];
  char *username;
  username = getenv("USER"); //get username
- size_t ulength = strlen(username); 
+ size_t ulength = strlen(username);
  gethostname(hostname,BUFSIZE); //put hostname in hostname pointer
  hostname = strtok(hostname,"."); //cut off at first dot
- size_t hlength = strlen(hostname); 
+ size_t hlength = strlen(hostname);
  getcwd(workingdir, BUFSIZE); //get working directory
  size_t wlength = strlen(workingdir);
  time_t curtime = time(NULL); //get time
  struct tm *tmp = localtime(&curtime); //put it as local time
  strftime(timestring, BUFSIZE,"%T", tmp); //format time
  size_t tlength = strlen(timestring);
- 
+
  int strlen = 0;
  int newstrlen = 0;
  while(prompt[strlen] != 0)
  {
  	if(prompt[strlen] == '\\') //if backslash is found, look at next character
 		switch(prompt[strlen+1])
-		{	
+		{
 		  case 'u':
 			strncat(tprompt, username, ulength); //concatenate username to new string
 			strlen+=2; //increment past both backslash and u
@@ -222,11 +222,11 @@ TranslatePrompt(char *prompt, char *tprompt)
  		}
 	else //must not have be special character
 	{
-		tprompt[newstrlen] = prompt[strlen]; //put old char in new string 
+		tprompt[newstrlen] = prompt[strlen]; //put old char in new string
 		strlen++; //increment both counters
 		newstrlen++;
-	}	
- 
+	}
+
  }
 free(hostname);
 

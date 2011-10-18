@@ -190,6 +190,7 @@ typedef struct bgjob_l
         commandT* cmd;
         int start_position;
 	struct bgjob_l* next;
+        struct bgjob_l* prev;
 } bgjobL;
 
 int
