@@ -88,15 +88,17 @@ main(int argc, char *argv[])
       /* read command line */
       getCommandLine(&cmdLine, BUFSIZE);
 
-      /* interpret command and line
-       * includes executing of commands */
-      Interpret(cmdLine);
-
       if (strcmp(cmdLine, "exit") == 0)
         forceExit = TRUE;
 
-      if (!forceExit)
+      char start_cmdLine[6];
+      strncpy(start_cmdLine, cmdLine, 5);
+      if (!forceExit && (strncmp(start_cmdLine, "sleep", 5) != 0))
         CheckJobs(); /* checks the status of background jobs */
+
+      /* interpret command and line
+       * includes executing of commands */
+      Interpret(cmdLine);
     }
 
   /* shell termination */

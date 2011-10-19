@@ -357,12 +357,15 @@ Exec(commandT* cmd, bool forceFork)
 		pid = fork(); //fork
 
 		if(pid == 0) //Child
-			execv(attemptPath,cmd->argv);
+                {
+                    execv(attemptPath,cmd->argv);
+                }
                 if (make_bg)
                     push_bg_job(pid, cmd);
                 else
                 {
-                    wait(NULL); // wait for child to finish
+                    int Status;
+                    waitpid(pid, &Status, 0);
                     freeCommand(cmd);
                 }
         } else
@@ -595,10 +598,12 @@ job_status(bgjobL* job)
 void
 print_job(bgjobL* job, const int status)
 {
+    int is_running = 0;
     char *stat_msg = malloc(sizeof(char) * 20);
     switch(status){
         case 0:
             strcpy(stat_msg, "Running");
+            is_running = 1;
             break;
         case 1:
             strcpy(stat_msg, "Stopped");
@@ -611,7 +616,10 @@ print_job(bgjobL* job, const int status)
     int i = 0;
     for(i=0; i < job->cmd->argc; i++)
         printf("%s ", job->cmd->argv[i]);
+    if(is_running == 1)
+        printf(" &");
     printf("\n");
+    fflush(stdout);
     if (status == 2)
     {
         pop_bg_job(job->pid);
