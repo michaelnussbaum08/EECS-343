@@ -384,7 +384,10 @@ Exec(commandT* cmd, bool forceFork)
                 int Status;
                 waitpid(pid, &Status, WUNTRACED);
                 if (WIFSTOPPED(Status))
+                {
+                    fg_pgid = 0;
                     push_bg_job(pid, cmd);
+                }
                 else
                     freeCommand(cmd);
             }
