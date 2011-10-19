@@ -1,5 +1,5 @@
-Switch to their job stack
-Determine bg printing behaviour
-print bg
-Mark bg done
-The rest of the assignment
+do we need to print quotes?
+BG->FG->BG breaks everything
+Can't get WIFSTOPPED in job_status to work
+Why is our array setting being skipped (check gdb, b runtime.c:429)
+io redirection we haven't started
