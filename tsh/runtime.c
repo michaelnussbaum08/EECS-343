@@ -211,7 +211,7 @@ RunCmdPipe(commandT_list* commands)
     commandT_list* top_cmd = commands;
     commandT_list* prev_cmd = NULL;
     while(top_cmd)
-    { 
+    {
         Exec(top_cmd->cmd, TRUE, (top_cmd->next != NULL),
              (prev_cmd != NULL), old_fd);
         if(prev_cmd)
@@ -739,37 +739,38 @@ CheckJobs()
 int
 job_status(bgjobL* job)
 {
-    int Stat;
-    pid_t wpid;
 
     char* path = malloc(sizeof(char) * MAXLINE);
     sprintf(path, "/proc/%d/status", (int)job->pid);
-    FILE *fp = fopen(path, "r");
-    char line [ 128 ];
-    while ( fgets ( line, sizeof line, fp ) != NULL )
+    struct stat st;
+    if (stat(path, &st) == 0)
     {
-        printf("%s\n", line);
-    }
+        FILE *fp = fopen(path, "r");
+        free(path);
+        char line [ 128 ];
+        char status;
+        while ( fgets ( line, sizeof line, fp ) != NULL )
+        {
+            char* line_start = malloc(sizeof(char) * MAXLINE);
+            strncpy(line_start, line, 5);
+            if (strcmp(line_start, "State") == 0)
+            {
+                status = line[7];
+                break;
+            }
+        }
+        if(status == 'T')
+            return JOB_STOPPED;
+        else
+            return JOB_RUNNING;
 
-    /*
-    wpid = waitpid(job->pid, &Stat, WNOHANG|WUNTRACED);
-    if (wpid == 0)
-    {
-        printf("Running %s\n", job->cmd->name);
-        return JOB_RUNNING;
+        return -1;
     }
-    if (WIFSTOPPED(Stat))
+    else
     {
-        printf("Stopped %s\n", job->cmd->name);
-        return JOB_STOPPED;
-    }
-    if (WIFEXITED(Stat) || WIFSIGNALED(Stat))
-    {
-        printf("Done %s\n", job->cmd->name);
+        free(path);
         return JOB_DONE;
     }
-    */
-    return -1;
 }
 
 void

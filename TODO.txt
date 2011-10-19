@@ -1,5 +1,7 @@
 do we need to print quotes?
 BG->FG->BG breaks everything
-Can't get WIFSTOPPED in job_status to work
-Why is our array setting being skipped (check gdb, b runtime.c:429)
+
+Not reaping zombie children
+Not printing Done
+
 io redirection we haven't started
