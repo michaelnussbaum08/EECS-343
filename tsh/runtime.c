@@ -741,6 +741,17 @@ job_status(bgjobL* job)
 {
     int Stat;
     pid_t wpid;
+
+    char* path = malloc(sizeof(char) * MAXLINE);
+    sprintf(path, "/proc/%d/status", (int)job->pid);
+    FILE *fp = fopen(path, "r");
+    char line [ 128 ];
+    while ( fgets ( line, sizeof line, fp ) != NULL )
+    {
+        printf("%s\n", line);
+    }
+
+    /*
     wpid = waitpid(job->pid, &Stat, WNOHANG|WUNTRACED);
     if (wpid == 0)
     {
@@ -757,7 +768,7 @@ job_status(bgjobL* job)
         printf("Done %s\n", job->cmd->name);
         return JOB_DONE;
     }
-
+    */
     return -1;
 }
 
