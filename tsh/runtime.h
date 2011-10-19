@@ -206,6 +206,8 @@ free_job(bgjobL*);
 void
 print_job(bgjobL *, const int);
 
+EXTERN int fg_pgid;
+
 /*MY FILE EXISTENCE FUNC*/
 int
 FileExists(char *);

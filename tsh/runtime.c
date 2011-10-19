@@ -362,18 +362,24 @@ Exec(commandT* cmd, bool forceFork)
 
 		if(pid == 0) //Child
                 {
-                    execv(attemptPath,cmd->argv);
+                    setpgid(0, 0);
+                    execv(attemptPath, cmd->argv);
                 }
+                fg_pgid = pid;
                 if (make_bg)
                     push_bg_job(pid, cmd);
                 else
                 {
                     int Status;
-                    waitpid(pid, &Status, 0);
-                    freeCommand(cmd);
+                    waitpid(pid, &Status, WUNTRACED);
+                    if (WIFSTOPPED(Status))
+                        push_bg_job(pid, cmd);
+                    else
+                        freeCommand(cmd);
                 }
         } else
-	    execv(attemptPath,cmd->argv); //exec without forking
+	    execv(attemptPath, cmd->argv); //exec without forking
+        fg_pgid = 0;
 
 } /* Exec */
 
@@ -398,6 +404,7 @@ push_bg_job(pid_t pid, commandT* cmd)
             oldest_bgjob = job;
         }
         bgjobs = job;
+        setpgid(pid, pid);
         return 0;
     }
     return -1;
@@ -576,6 +583,7 @@ fg(commandT* cmd)
     else
         printf("Error: fg takes one and only one argument\n");
     int Stat;
+    kill(job->pid, SIGCONT);
     waitpid(job->pid, &Stat, 0);
 }
 

@@ -120,8 +120,15 @@ main(int argc, char *argv[])
 static void
 sig(int signo)
 {
-//	if(signo == SIGINT)
-//		exit(0);
+    if (fg_pgid != 0)
+    {
+        if (signo == SIGTSTP)
+        {
+            kill(fg_pgid, SIGTSTP);
+        }
+        else if (signo == SIGINT)
+            kill(-1*fg_pgid, signo);
+    }
 } /* sig */
 
 /*
