@@ -116,6 +116,9 @@ pop_bg_job(pid_t);
 bgjobL *
 delete_job_num(int job_num);
 
+bgjobL *
+continue_job_num(int job_num);
+
 
 int
 size_of_bgjobs(void);
@@ -510,7 +513,7 @@ IsBuiltIn(char* cmd)
 {
     // only built in we need to worry about as of now
     if(strcmp( cmd, "cd")==0 || strcmp(cmd, "jobs") == 0 || \
-       strcmp(cmd, "fg") == 0)
+       strcmp(cmd, "fg") == 0 || (strcmp(cmd, "bg") == 0))
         return TRUE;
     return FALSE;
 } /* IsBuiltIn */
@@ -567,6 +570,10 @@ RunBuiltInCmd(commandT* cmd)
     {
         fg(cmd);
     }
+    else if (strcmp(cmd->name, "bg") == 0)
+    {
+        bg(cmd);
+    }
     free(path);
     freeCommand(cmd);
 } /* RunBuiltInCmd */
@@ -581,10 +588,42 @@ fg(commandT* cmd)
     else if (cmd->argc == 2)
         job = delete_job_num(atoi(cmd->argv[1]));
     else
-        printf("Error: fg takes one and only one argument\n");
+        printf("Error: fg takes max one argument\n");
     int Stat;
     kill(job->pid, SIGCONT);
     waitpid(job->pid, &Stat, 0);
+}
+
+void
+bg(commandT* cmd)
+{
+    bgjobL *job = NULL;
+    if(cmd->argc == 1)
+        job = continue_job_num(0);
+    else if (cmd->argc == 2)
+        job = continue_job_num(atoi(cmd->argv[1]));
+    else
+        printf("Error: bg takes max one argument\n");
+    kill(job->pid, SIGCONT);
+}
+
+bgjobL*
+continue_job_num(int job_num)
+{
+    if(job_num == 0)
+        return bgjobs;
+    else
+    {
+        bgjobL *top_job = bgjobs;
+        while(top_job != NULL)
+        {
+            if(top_job->start_position == job_num)
+                return top_job;
+            else
+                top_job = top_job->next;
+        }
+    }
+    return NULL;
 }
 
 bgjobL*
@@ -637,13 +676,23 @@ job_status(bgjobL* job)
 {
     int Stat;
     pid_t wpid;
-    wpid = waitpid(job->pid, &Stat, WNOHANG);
+    wpid = waitpid(job->pid, &Stat, WNOHANG|WUNTRACED);
     if (wpid == 0)
+    {
+        printf("Running %s\n", job->cmd->name);
         return JOB_RUNNING;
-    if (WIFEXITED(Stat) || WIFSIGNALED(Stat))
-        return JOB_DONE;
+    }
     if (WIFSTOPPED(Stat))
+    {
+        printf("Stopped %s\n", job->cmd->name);
         return JOB_STOPPED;
+    }
+    if (WIFEXITED(Stat) || WIFSIGNALED(Stat))
+    {
+        printf("Done %s\n", job->cmd->name);
+        return JOB_DONE;
+    }
+
     return -1;
 }
 

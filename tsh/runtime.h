@@ -187,6 +187,8 @@ CheckJobs();
 void
 fg(commandT* cmd);
 
+void
+bg(commandT* cmd);
 
 typedef struct bgjob_l
 {
