@@ -184,6 +184,10 @@ getLogin();
 EXTERN void
 CheckJobs();
 
+void
+fg(commandT* cmd);
+
+
 typedef struct bgjob_l
 {
 	pid_t pid;

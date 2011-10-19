@@ -113,6 +113,10 @@ push_bg_job(pid_t, commandT*);
 bgjobL*
 pop_bg_job(pid_t);
 
+bgjobL *
+delete_job_num(int job_num);
+
+
 int
 size_of_bgjobs(void);
 
@@ -498,7 +502,8 @@ is_bg(commandT *cmd)
 IsBuiltIn(char* cmd)
 {
     // only built in we need to worry about as of now
-    if(strcmp( cmd, "cd")==0 || strcmp(cmd, "jobs") == 0)
+    if(strcmp( cmd, "cd")==0 || strcmp(cmd, "jobs") == 0 || \
+       strcmp(cmd, "fg") == 0)
         return TRUE;
     return FALSE;
 } /* IsBuiltIn */
@@ -551,9 +556,48 @@ RunBuiltInCmd(commandT* cmd)
         }
 
     }
+    else if (strcmp(cmd->name, "fg") == 0)
+    {
+        fg(cmd);
+    }
     free(path);
     freeCommand(cmd);
 } /* RunBuiltInCmd */
+
+
+void
+fg(commandT* cmd)
+{
+    bgjobL *job = NULL;
+    if(cmd->argc == 1)
+        job = delete_job_num(0);
+    else if (cmd->argc == 2)
+        job = delete_job_num(atoi(cmd->argv[1]));
+    else
+        printf("Error: fg takes one and only one argument\n");
+    int Stat;
+    waitpid(job->pid, &Stat, 0);
+}
+
+bgjobL*
+delete_job_num(int job_num)
+{
+    if(job_num == 0)
+        return pop_bg_job(bgjobs->pid);
+    else
+    {
+        bgjobL *top_job = bgjobs;
+        while(top_job != NULL)
+        {
+            if(top_job->start_position == job_num)
+                return pop_bg_job(top_job->pid);
+            else
+                top_job = top_job->next;
+        }
+    }
+    return NULL;
+}
+
 
 
 /*
