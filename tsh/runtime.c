@@ -94,7 +94,7 @@ static bool
 ResolveExternalCmd(commandT*);
 /* forks and runs a external program */
 static void
-Exec(commandT*, bool, bool, bool, int[], int[]);
+Exec(commandT*, bool, bool, bool, int(*)[2] ,int(*)[2]);
 /* runs a builtin command */
 static void
 RunBuiltInCmd(commandT*);
@@ -215,7 +215,7 @@ RunCmdPipe(commandT_list* commands)
     {
         printf("top name: %s\n", top_cmd->cmd->name);
         Exec(top_cmd->cmd, TRUE, (top_cmd->next != NULL),
-             (prev_cmd != NULL), new_fd, old_fd);
+             (prev_cmd != NULL), &new_fd, &old_fd);
         if(prev_cmd)
             freeCommandTList(prev_cmd);
         prev_cmd = top_cmd;
@@ -296,7 +296,7 @@ RunExternalCmd(commandT* cmd, bool fork)
 
 /*
  * ResolveExternalCmd
- *
+ ::*
  * arguments:
  *   commandT *cmd: the command to be run
  *
@@ -349,8 +349,10 @@ ResolveExternalCmd(commandT* cmd)
  */
 static void
 Exec(commandT* cmd, bool forceFork, bool next, bool prev,
-     int new_fd[], int old_fd[])
+     int (*new_fd_in)[2], int (*old_fd_in)[2])
 {
+	int *new_fd = *new_fd_in;
+	int *old_fd = *old_fd_in;
 	pid_t pid;
 	char *path;
 	char *pathtoken;
@@ -431,7 +433,7 @@ Exec(commandT* cmd, bool forceFork, bool next, bool prev,
                     close(old_fd[1]);
                 }
 
-                //if(next)
+                if(next)
                 old_fd = new_fd;
 
                 int Status;
