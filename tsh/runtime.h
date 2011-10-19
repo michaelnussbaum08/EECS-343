@@ -63,6 +63,14 @@ typedef struct command_t
   char* argv[];
 } commandT;
 
+typedef struct commandT_l
+{
+    commandT* cmd;
+    struct commandT_l* next;
+} commandT_list;
+
+
+
 /************Global Variables*********************************************/
 
 /***********************************************************************
@@ -103,7 +111,7 @@ RunCmdBg(commandT*);
  *    Output: void
  ***********************************************************************/
 EXTERN void
-RunCmdPipe(commandT*, commandT*);
+RunCmdPipe(commandT_list*);
 
 /***********************************************************************
  *  Title: Runs two command with output redirection

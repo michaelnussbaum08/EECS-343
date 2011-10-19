@@ -74,6 +74,9 @@ int MAXARGS = 100;
 commandT*
 getCommand(char* cmdLine);
 
+commandT_list*
+get_command_list(char* cmdLine);
+
 void
 freeCommand(commandT* cmd);
 
@@ -99,26 +102,63 @@ isComment(commandT* cmd);
 void
 Interpret(char* cmdLine)
 {
-  int i = 0;
-  commandT* cmd = getCommand(cmdLine);
-
-  // printf("argc: %d\n", cmd->argc);
-  for (i = 0; cmd->argv[i] != 0; i++)
+    if(strchr(cmdLine, '|'))
     {
-      //printf("#%d|%s|\n", i, cmd->argv[i]);
+        commandT_list* commands = get_command_list(cmdLine);
+        RunCmdPipe(commands);
     }
+    else
+    {
+        commandT* cmd = getCommand(cmdLine);
 
-  if(!isComment(cmd)) //check for comments
-  {
-  	if(!HandleEnvironment(cmd)) //check if environment update
-  		RunCmd(cmd);  //otherwise run the command
+        if(!isComment(cmd)) //check for comments
+        {
+            if(!HandleEnvironment(cmd)) //check if environment update
+                RunCmd(cmd);  //otherwise run the command
+            else
+                freeCommand(cmd);
+        }
         else
             freeCommand(cmd);
-  }
-  else
-    freeCommand(cmd);
+    }
 } /* Interpret */
 
+
+commandT_list*
+get_command_list(char* cmdLine)
+{
+    commandT_list* commands = NULL;
+    commandT_list* last_command = NULL;
+    char* cmd_buf = malloc(sizeof(char) * MAXLINE);
+    int cmd_buf_len = 0;
+    int i = 0;
+    for (i=0; i <= strlen(cmdLine); i++)
+    {
+        char cur_char = cmdLine[i];
+        if(cur_char == '|' || i == strlen(cmdLine))
+        {
+            commandT_list* command_cell = malloc(sizeof(commandT_list));
+            cmd_buf[cmd_buf_len] = 0;
+            commandT* cmd = getCommand(cmd_buf);
+            memset(cmd_buf, 0, sizeof(char)*MAXLINE);
+            cmd_buf_len = 0;
+            command_cell->cmd = cmd;
+            command_cell->next = NULL;
+            if(commands == NULL)
+                commands = command_cell;
+            else if(last_command != NULL)
+                last_command->next = command_cell;
+            last_command = command_cell;
+        }
+        else
+        {
+            cmd_buf[cmd_buf_len] = cur_char;
+            cmd_buf_len++;
+        }
+    }
+    free(cmd_buf);
+    return commands;
+}
 
 /*
  * getCommand

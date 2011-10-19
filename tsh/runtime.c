@@ -94,13 +94,16 @@ static bool
 ResolveExternalCmd(commandT*);
 /* forks and runs a external program */
 static void
-Exec(commandT*, bool);
+Exec(commandT*, bool, bool, bool, int[], int[]);
 /* runs a builtin command */
 static void
 RunBuiltInCmd(commandT*);
 /* checks whether a command is a builtin command */
 static bool
 IsBuiltIn(char*);
+
+void
+freeCommandTList(commandT_list* cmd_cell);
 
 bool
 is_bg(commandT *cmd);
@@ -201,11 +204,34 @@ RunCmdBg(commandT* cmd)
  * Runs two commands, redirecting standard output from the first to
  * standard input on the second.
  */
-	void
-RunCmdPipe(commandT* cmd1, commandT* cmd2)
+    void
+RunCmdPipe(commandT_list* commands)
 {
+    int new_fd[2];
+    int old_fd[2];
+    commandT_list* top_cmd = commands;
+    commandT_list* prev_cmd = NULL;
+    while(top_cmd)
+    {
+        printf("top name: %s\n", top_cmd->cmd->name);
+        Exec(top_cmd->cmd, TRUE, (top_cmd->next != NULL),
+             (prev_cmd != NULL), new_fd, old_fd);
+        if(prev_cmd)
+            freeCommandTList(prev_cmd);
+        prev_cmd = top_cmd;
+        top_cmd = top_cmd->next;
+    }
+    if(prev_cmd)
+        freeCommandTList(prev_cmd);
 } /* RunCmdPipe */
 
+
+void
+freeCommandTList(commandT_list* cmd_cell)
+{
+    freeCommand(cmd_cell->cmd);
+    free(cmd_cell);
+}
 
 /*
  * RunCmdRedirOut
@@ -256,7 +282,7 @@ RunCmdRedirIn(commandT* cmd, char* file)
 RunExternalCmd(commandT* cmd, bool fork)
 {
 	if (ResolveExternalCmd(cmd))
-		Exec(cmd, fork);
+		Exec(cmd, fork, FALSE, FALSE, NULL, NULL);
 	else if(strcmp(cmd->name, "exit")!=0) //if exit, let interpreter handle it
 	{
 		Print("./tsh line 1: ");
@@ -321,8 +347,9 @@ ResolveExternalCmd(commandT* cmd)
  *
  * Executes a command.
  */
-	static void
-Exec(commandT* cmd, bool forceFork)
+static void
+Exec(commandT* cmd, bool forceFork, bool next, bool prev,
+     int new_fd[], int old_fd[])
 {
 	pid_t pid;
 	char *path;
@@ -332,6 +359,9 @@ Exec(commandT* cmd, bool forceFork)
         bool make_bg = FALSE;
         if(is_bg(cmd))
             make_bg = TRUE;
+
+        if(next)
+            pipe(new_fd);
 
 	if(!FileExists(cmd->name)) //if you cant find it locally, we need to go find it on the path
 	{
@@ -365,11 +395,25 @@ Exec(commandT* cmd, bool forceFork)
             sigemptyset(&sigs);
             sigaddset(&sigs, SIGCHLD);
             sigprocmask(SIG_BLOCK, &sigs, NULL);
+
+
             pid = fork(); //fork
             if(pid == 0) //Child
             {
                 sigprocmask(SIG_UNBLOCK, &sigs, NULL);
                 setpgid(0, 0);
+                if(prev)
+                {
+                    dup2(old_fd[0], 0);
+                    close(old_fd[0]);
+                    close(old_fd[1]);
+                }
+                if(next)
+                {
+                    close(new_fd[0]);
+                    dup2(new_fd[1], 1);
+                    close(new_fd[1]);
+                }
                 execv(attemptPath, cmd->argv);
             }
             fg_pgid = pid;
@@ -381,6 +425,15 @@ Exec(commandT* cmd, bool forceFork)
             else
             {
                 sigprocmask(SIG_UNBLOCK, &sigs, NULL);
+                if(prev)
+                {
+                    close(old_fd[0]);
+                    close(old_fd[1]);
+                }
+
+                //if(next)
+                old_fd = new_fd;
+
                 int Status;
                 waitpid(pid, &Status, WUNTRACED);
                 if (WIFSTOPPED(Status))
@@ -427,7 +480,6 @@ push_bg_job(pid_t pid, commandT* cmd)
 void
 free_job(bgjobL* job)
 {
-    freeCommand(job->cmd);
     free(job);
 }
 

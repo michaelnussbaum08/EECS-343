@@ -1,5 +1,5 @@
 /***************************************************************************
- *  Title: Interpreter 
+ *  Title: Interpreter
  * -------------------------------------------------------------------------
  *    Purpose: Interprets a command line
  *    Author: Stefan Birrer
