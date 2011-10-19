@@ -361,27 +361,35 @@ Exec(commandT* cmd, bool forceFork)
 
 	if(forceFork) //if told to fork...
 	{
-		pid = fork(); //fork
-
-		if(pid == 0) //Child
-                {
-                    setpgid(0, 0);
-                    execv(attemptPath, cmd->argv);
-                }
-                fg_pgid = pid;
-                if (make_bg)
+            sigset_t sigs;
+            sigemptyset(&sigs);
+            sigaddset(&sigs, SIGCHLD);
+            sigprocmask(SIG_BLOCK, &sigs, NULL);
+            pid = fork(); //fork
+            if(pid == 0) //Child
+            {
+                sigprocmask(SIG_UNBLOCK, &sigs, NULL);
+                setpgid(0, 0);
+                execv(attemptPath, cmd->argv);
+            }
+            fg_pgid = pid;
+            if (make_bg)
+            {
+                push_bg_job(pid, cmd);
+                sigprocmask(SIG_UNBLOCK, &sigs, NULL);
+            }
+            else
+            {
+                sigprocmask(SIG_UNBLOCK, &sigs, NULL);
+                int Status;
+                waitpid(pid, &Status, WUNTRACED);
+                if (WIFSTOPPED(Status))
                     push_bg_job(pid, cmd);
                 else
-                {
-                    int Status;
-                    waitpid(pid, &Status, WUNTRACED);
-                    if (WIFSTOPPED(Status))
-                        push_bg_job(pid, cmd);
-                    else
-                        freeCommand(cmd);
-                }
+                    freeCommand(cmd);
+            }
         } else
-	    execv(attemptPath, cmd->argv); //exec without forking
+            execv(attemptPath, cmd->argv); //exec without forking
         fg_pgid = 0;
 
 } /* Exec */
@@ -590,6 +598,7 @@ fg(commandT* cmd)
     else
         printf("Error: fg takes max one argument\n");
     int Stat;
+    fg_pgid = job->pid;
     kill(job->pid, SIGCONT);
     waitpid(job->pid, &Stat, 0);
 }
