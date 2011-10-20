@@ -131,10 +131,14 @@ sig(int signo)
         pid = waitpid(-1, &Stat, WNOHANG|WUNTRACED);
         if(pid == fg_pgid && pid != 0)
         {
-            fg_pgid = 0;
             if(!WIFSTOPPED(Stat))
                 freeCommand(fg_cmd);
+            else
+                print_pid(fg_pgid);
+            fg_pgid = 0;
         }
+        else if (pid != 0 && WIFSTOPPED(Stat))
+            print_pid(pid);
     }
 
     if (fg_pgid != 0)
@@ -147,7 +151,6 @@ sig(int signo)
         {
             kill(fg_pgid, SIGTSTP);
             push_bg_job(fg_pgid, fg_cmd);
-            print_pid(fg_pgid);
             fg_pgid = 0;
             //fg_cmd = NULL;
 
