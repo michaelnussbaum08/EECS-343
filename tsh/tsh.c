@@ -129,21 +129,25 @@ sig(int signo)
         pid_t pid;
         int Stat;
         pid = waitpid(-1, &Stat, WNOHANG|WUNTRACED);
-        if(pid == fg_pgid)
+        if(pid == fg_pgid && pid != 0)
         {
             fg_pgid = 0;
-            freeCommand(fg_cmd);
+            if(!WIFSTOPPED(Stat))
+                freeCommand(fg_cmd);
         }
-        //else
-         //   print_pid(pid);
     }
 
     if (fg_pgid != 0)
     {
+        sigset_t sigs;
+        sigemptyset(&sigs);
+        sigaddset(&sigs, SIGCHLD);
+        sigprocmask(SIG_BLOCK, &sigs, NULL);
         if (signo == SIGTSTP)
         {
             kill(fg_pgid, SIGTSTP);
             push_bg_job(fg_pgid, fg_cmd);
+            print_pid(fg_pgid);
             fg_pgid = 0;
             //fg_cmd = NULL;
 
@@ -154,6 +158,7 @@ sig(int signo)
             freeCommand(fg_cmd);
             fg_pgid = 0;
         }
+        sigprocmask(SIG_UNBLOCK, &sigs, NULL);
     }
 } /* sig */
 

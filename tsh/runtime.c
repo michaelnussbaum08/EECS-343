@@ -654,10 +654,18 @@ fg(commandT* cmd)
         job = delete_job_num(atoi(cmd->argv[1]));
     else
         printf("Error: fg takes max one argument\n");
-    fg_pgid = job->pid;
-    fg_cmd = job->cmd;
-    kill(job->pid, SIGCONT);
-    waitfg();
+
+    if(job)
+    {
+        fg_pgid = job->pid;
+        fg_cmd = job->cmd;
+        kill(job->pid, SIGCONT);
+        waitfg();
+    }
+    else if(cmd->argc == 2)
+        printf("fg: %s: no such job\n", cmd->argv[1]);
+    else
+        printf("fg: current: no such job\n");
 }
 
 void
@@ -670,7 +678,13 @@ bg(commandT* cmd)
         job = continue_job_num(atoi(cmd->argv[1]));
     else
         printf("Error: bg takes max one argument\n");
-    kill(job->pid, SIGCONT);
+
+    if(job)
+        kill(job->pid, SIGCONT);
+    else if(cmd->argc == 2)
+        printf("bg: %s: no such job\n", cmd->argv[1]);
+    else
+        printf("bg: current: no such job\n");
 }
 
 bgjobL*
@@ -783,7 +797,10 @@ print_pid(pid_t pid)
     while(top_job)
     {
         if(top_job->pid == pid)
+        {
             print_job(top_job, job_status(top_job));
+            break;
+        }
         else
             top_job = top_job->next;
     }
@@ -809,7 +826,16 @@ print_job(bgjobL* job, const int status)
     printf("[%d] %s ", job->start_position, stat_msg);
     int i = 0;
     for(i=0; i < job->cmd->argc; i++)
-        printf("%s ", job->cmd->argv[i]);
+    {
+        if(strchr(job->cmd->argv[i], ' '))
+        {
+            printf("\"");
+            printf("%s", job->cmd->argv[i]);
+            printf("\"");
+        }
+        else
+            printf("%s ", job->cmd->argv[i]);
+    }
     if(is_running == 1)
         printf(" &");
     printf("\n");
