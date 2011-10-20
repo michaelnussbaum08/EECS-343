@@ -80,8 +80,8 @@ const int JOB_STOPPED = 1;
 const int JOB_DONE = 2;
 /************Function Prototypes******************************************/
 
-EXTERN void
-freeCommand(commandT* cmd);
+void
+waitfg(void);
 
 /* run command */
 static void
@@ -109,9 +109,6 @@ bool
 is_bg(commandT *cmd);
 int
 job_stack_size();
-
-int
-push_bg_job(pid_t, commandT*);
 
 bgjobL*
 pop_bg_job(pid_t);
@@ -415,7 +412,6 @@ Exec(commandT* cmd, bool forceFork, bool next, bool prev,
                 }
                 execv(attemptPath, cmd->argv);
             }
-            fg_pgid = pid;
             if (make_bg)
             {
                 push_bg_job(pid, cmd);
@@ -423,6 +419,8 @@ Exec(commandT* cmd, bool forceFork, bool next, bool prev,
             }
             else
             {
+                fg_pgid = pid;
+                fg_cmd = cmd;
                 sigprocmask(SIG_UNBLOCK, &sigs, NULL);
                 if(prev)
                 {
@@ -434,27 +432,23 @@ Exec(commandT* cmd, bool forceFork, bool next, bool prev,
                    *old_fd = new_fd[0];
 		   *(old_fd + 1) = new_fd[1];
 		}
-
-                int Status;
-                waitpid(pid, &Status, WUNTRACED);
-                if (WIFSTOPPED(Status))
-                {
-                    fg_pgid = 0;
-                    push_bg_job(pid, cmd);
-                }
-                else
-                    freeCommand(cmd);
+                waitfg();
             }
         } else
             execv(attemptPath, cmd->argv); //exec without forking
-        fg_pgid = 0;
-
 } /* Exec */
+
+
+void
+waitfg(void)
+{
+    while(fg_pgid != 0)
+        sleep(1);
+}
 
 int
 push_bg_job(pid_t pid, commandT* cmd)
 {
-    printf("adding cmd: %s\n", cmd->name);
     bgjobL *job = malloc(sizeof(bgjobL));
     if(job)
     {
@@ -488,7 +482,6 @@ free_job(bgjobL* job)
 bgjobL*
 pop_bg_job(pid_t pid)
 {
-    printf("poping pid: %d\n", pid);
     bgjobL* prev_job = NULL;
     bgjobL* top_job = bgjobs;
     while(top_job != NULL)
@@ -498,6 +491,8 @@ pop_bg_job(pid_t pid)
             if (prev_job == NULL)
             {
                 bgjobs = top_job->next; // first thing on stack
+                if(bgjobs)
+                    bgjobs->prev = NULL;
                 if (top_job == oldest_bgjob)
                     oldest_bgjob = NULL;
             }
@@ -600,8 +595,10 @@ RunBuiltInCmd(commandT* cmd)
 {
     char *envpath;
     char *path = malloc(sizeof(char) * 256);
+    bool do_free = FALSE;
     if(strcmp(cmd->name, "cd")==0)
     {
+        do_free = TRUE;
         if(cmd->argc == 1)
         {
             envpath = getenv("HOME"); //get home if no argument
@@ -622,6 +619,7 @@ RunBuiltInCmd(commandT* cmd)
     }
     else if (strcmp(cmd->name, "jobs") == 0)
     {
+        do_free = TRUE;
         bgjobL* prev_job = NULL;
         bgjobL* top_job = oldest_bgjob;
         while(top_job != NULL)
@@ -641,7 +639,8 @@ RunBuiltInCmd(commandT* cmd)
         bg(cmd);
     }
     free(path);
-    freeCommand(cmd);
+    if(do_free)
+        freeCommand(cmd);
 } /* RunBuiltInCmd */
 
 
@@ -655,10 +654,10 @@ fg(commandT* cmd)
         job = delete_job_num(atoi(cmd->argv[1]));
     else
         printf("Error: fg takes max one argument\n");
-    int Stat;
     fg_pgid = job->pid;
+    fg_cmd = job->cmd;
     kill(job->pid, SIGCONT);
-    waitpid(job->pid, &Stat, 0);
+    waitfg();
 }
 
 void
@@ -741,8 +740,6 @@ CheckJobs()
 int
 job_status(bgjobL* job)
 {
-    int Status;
-    waitpid(job->pid, &Status, WNOHANG);
     char* path = malloc(sizeof(char) * MAXLINE);
     sprintf(path, "/proc/%d/status", (int)job->pid);
     struct stat st;
@@ -762,6 +759,7 @@ job_status(bgjobL* job)
                 break;
             }
         }
+        fclose(fp);
         if(status == 'T')
             return JOB_STOPPED;
         else if (status == 'Z')
@@ -775,6 +773,19 @@ job_status(bgjobL* job)
     {
         free(path);
         return JOB_DONE;
+    }
+}
+
+void
+print_pid(pid_t pid)
+{
+    bgjobL* top_job = bgjobs;
+    while(top_job)
+    {
+        if(top_job->pid == pid)
+            print_job(top_job, job_status(top_job));
+        else
+            top_job = top_job->next;
     }
 }
 

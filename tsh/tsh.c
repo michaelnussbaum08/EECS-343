@@ -17,6 +17,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <time.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 /************Private include**********************************************/
 #include "tsh.h"
@@ -68,6 +70,8 @@ main(int argc, char *argv[])
   char* prompt;
   char* translatedPrompt = malloc(sizeof(char) * BUFSIZE);
  /* shell initialization */
+  if (signal(SIGCHLD, sig) == SIG_ERR)
+      PrintPError("SIGCHLD");
   if (signal(SIGINT, sig) == SIG_ERR)
     PrintPError("SIGINT");
   if (signal(SIGTSTP, sig) == SIG_ERR)
@@ -93,7 +97,7 @@ main(int argc, char *argv[])
 
       char start_cmdLine[6];
       strncpy(start_cmdLine, cmdLine, 5);
-      if (!forceExit && (strncmp(start_cmdLine, "sleep", 5) != 0))
+      if (!forceExit && (strncmp(start_cmdLine, "sleep", 5) != 0) && fg_pgid == 0)
         CheckJobs(); /* checks the status of background jobs */
 
       /* interpret command and line
@@ -120,14 +124,36 @@ main(int argc, char *argv[])
 static void
 sig(int signo)
 {
+    if(signo == SIGCHLD)
+    {
+        pid_t pid;
+        int Stat;
+        pid = waitpid(-1, &Stat, WNOHANG|WUNTRACED);
+        if(pid == fg_pgid)
+        {
+            fg_pgid = 0;
+            freeCommand(fg_cmd);
+        }
+        //else
+         //   print_pid(pid);
+    }
+
     if (fg_pgid != 0)
     {
         if (signo == SIGTSTP)
         {
             kill(fg_pgid, SIGTSTP);
+            push_bg_job(fg_pgid, fg_cmd);
+            fg_pgid = 0;
+            //fg_cmd = NULL;
+
         }
         else if (signo == SIGINT)
+        {
             kill(-1*fg_pgid, signo);
+            freeCommand(fg_cmd);
+            fg_pgid = 0;
+        }
     }
 } /* sig */
 

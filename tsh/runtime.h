@@ -83,6 +83,8 @@ VAREXTERN(bool forceExit, FALSE)
 
 /************Function Prototypes******************************************/
 
+void
+print_pid(pid_t pid);
 /***********************************************************************
  *  Title: Runs a command
  * ---------------------------------------------------------------------
@@ -217,6 +219,15 @@ void
 print_job(bgjobL *, const int);
 
 EXTERN int fg_pgid;
+EXTERN commandT* fg_cmd;
+
+EXTERN void
+freeCommand(commandT* cmd);
+
+int
+push_bg_job(pid_t, commandT*);
+
+
 
 /*MY FILE EXISTENCE FUNC*/
 int
