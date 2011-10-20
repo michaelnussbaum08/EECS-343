@@ -454,6 +454,7 @@ Exec(commandT* cmd, bool forceFork, bool next, bool prev,
 int
 push_bg_job(pid_t pid, commandT* cmd)
 {
+    printf("adding cmd: %s\n", cmd->name);
     bgjobL *job = malloc(sizeof(bgjobL));
     if(job)
     {
@@ -487,6 +488,7 @@ free_job(bgjobL* job)
 bgjobL*
 pop_bg_job(pid_t pid)
 {
+    printf("poping pid: %d\n", pid);
     bgjobL* prev_job = NULL;
     bgjobL* top_job = bgjobs;
     while(top_job != NULL)
@@ -739,7 +741,8 @@ CheckJobs()
 int
 job_status(bgjobL* job)
 {
-
+    int Status;
+    waitpid(job->pid, &Status, WNOHANG);
     char* path = malloc(sizeof(char) * MAXLINE);
     sprintf(path, "/proc/%d/status", (int)job->pid);
     struct stat st;
@@ -748,7 +751,7 @@ job_status(bgjobL* job)
         FILE *fp = fopen(path, "r");
         free(path);
         char line [ 128 ];
-        char status;
+        char status = 0;
         while ( fgets ( line, sizeof line, fp ) != NULL )
         {
             char* line_start = malloc(sizeof(char) * MAXLINE);
@@ -761,6 +764,8 @@ job_status(bgjobL* job)
         }
         if(status == 'T')
             return JOB_STOPPED;
+        else if (status == 'Z')
+            printf("ZOMBIE\n");
         else
             return JOB_RUNNING;
 
