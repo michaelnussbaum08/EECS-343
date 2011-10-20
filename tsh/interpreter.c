@@ -102,6 +102,16 @@ isComment(commandT* cmd);
 void
 Interpret(char* cmdLine)
 {
+
+   /* else if(strchr(cmdLine, '>') || strchr(cmdLine, '<'))
+    {
+        commandT* cmd = getCommand(cmdLine);
+        if(strchr(cmdLine, '>') > strchr(cmdLine, '<'))
+            RunCmdRedirOut(cmd,);
+        else
+            RunCmdRedirIn(cmd);
+    }*/
+
     if(strchr(cmdLine, '|'))
     {
         commandT_list* commands = get_command_list(cmdLine);

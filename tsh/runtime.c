@@ -119,10 +119,22 @@ delete_job_num(int job_num);
 bgjobL *
 continue_job_num(int job_num);
 
-
 int
 size_of_bgjobs(void);
 
+void
+print_aliases(void);
+
+void
+make_alias(commandT*);
+
+void
+push_alias(aliasT*);
+
+void
+remove_alias(char*);
+
+aliasT *aliases;
 /************External Declaration*****************************************/
 
 /**************Implementation***********************************************/
@@ -574,7 +586,8 @@ IsBuiltIn(char* cmd)
 {
     // only built in we need to worry about as of now
     if(strcmp( cmd, "cd")==0 || strcmp(cmd, "jobs") == 0 || \
-       strcmp(cmd, "fg") == 0 || (strcmp(cmd, "bg") == 0))
+       strcmp(cmd, "fg") == 0 || (strcmp(cmd, "bg") == 0) || \
+       strcmp(cmd, "alias") == 0)
         return TRUE;
     return FALSE;
 } /* IsBuiltIn */
@@ -638,10 +651,97 @@ RunBuiltInCmd(commandT* cmd)
     {
         bg(cmd);
     }
+    else if (strcmp(cmd->name, "alias") == 0)
+    {
+        if(cmd->argc == 1)
+            print_aliases();
+        else
+            make_alias(cmd);
+    }
     free(path);
     if(do_free)
         freeCommand(cmd);
 } /* RunBuiltInCmd */
+
+
+void
+print_aliases(void)
+{
+    aliasT *top = aliases;
+    while(top)
+    {
+        printf("alias %s='%s'\n", top->lhs, top->rhs);
+        top = top->next;
+    }
+}
+
+void
+make_alias(commandT* cmd)
+{
+    char *lhs = malloc(sizeof(char) * MAXLINE);
+    int lhs_size = 0;
+    char *rhs = malloc(sizeof(char) * MAXLINE);
+    int rhs_size = 0;
+    int i = 0;
+    bool left = TRUE;
+    for(i=0; i<=strlen(cmd->argv[1]); i++)
+    {
+        char cur_char = cmd->argv[1][i];
+        if(left && cur_char != '=')
+        {
+            lhs[lhs_size] = cur_char;
+            lhs_size++;
+        }
+        else if(left && cur_char == '=')
+        {
+            lhs[lhs_size] = 0;
+            left = FALSE;
+        }
+        else if (!left && cur_char != '\'')
+        {
+            rhs[rhs_size] = cur_char;
+            rhs_size++;
+        }
+        else if(!left && cur_char == '\'')
+            rhs[rhs_size] = 0;
+    }
+    aliasT *alias = malloc(sizeof(alias));
+    alias->lhs = lhs;
+    alias->rhs = rhs;
+    push_alias(alias);
+}
+
+
+void
+push_alias(aliasT* alias)
+{
+    alias->next = aliases;
+    aliases = alias;
+}
+
+void
+remove_alias(char *name)
+{
+    aliasT *prev = NULL;
+    aliasT *top = aliases;
+    while(top)
+    {
+        if(strcmp(top->lhs, name) == 0)
+        {
+            if(prev)
+                prev->next = top->next;
+            else
+                aliases = top->next;
+            top->next = NULL;
+            free(top->lhs);
+            free(top->rhs);
+            free(top);
+            return;
+        }
+        prev = top;
+        top = top->next;
+    }
+}
 
 
 void

@@ -70,6 +70,13 @@ typedef struct commandT_l
 } commandT_list;
 
 
+typedef struct aliasT_l
+{
+    char* lhs;
+    char* rhs;
+    struct aliasT_l* next;
+} aliasT;
+
 
 /************Global Variables*********************************************/
 
