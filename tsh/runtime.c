@@ -134,6 +134,12 @@ push_alias(aliasT*);
 void
 remove_alias(char*);
 
+char*
+is_alias_for(char*);
+
+commandT*
+resolve_aliases(commandT*);
+
 aliasT *aliases;
 /************External Declaration*****************************************/
 
@@ -171,17 +177,81 @@ RunCmd(commandT* cmd)
 	void
 RunCmdFork(commandT* cmd, bool fork)
 {
-	if (cmd->argc <= 0)
+        commandT* new_cmd = resolve_aliases(cmd);
+        free(cmd);
+	if (new_cmd->argc <= 0)
 		return;
-	if (IsBuiltIn(cmd->argv[0]))
+        if (IsBuiltIn(new_cmd->argv[0]))
 	{
-		RunBuiltInCmd(cmd);
+		RunBuiltInCmd(new_cmd);
 	}
 	else
 	{
-		RunExternalCmd(cmd, fork);
+		RunExternalCmd(new_cmd, fork);
 	}
 } /* RunCmdFork */
+
+commandT*
+resolve_aliases(commandT* cmd)
+{
+    commandT* new_cmd = malloc(sizeof(commandT));
+    int i = 0;
+    int new_arg_count = 0;
+    for(i=0; i<cmd->argc; i++)
+    {
+        char* cur_arg = cmd->argv[i];
+        char* new = is_alias_for(cur_arg);
+        char* tmp = malloc(sizeof(char) * MAXLINE);
+        int tmp_len = 0;
+        int j;
+        for(j=0; j<=strlen(new); j++)
+        {
+            char cur_char = new[j];
+            if(cur_char == ' ' || cur_char == 0)
+            {
+                // a new argument is ended
+                tmp[tmp_len] = 0;
+                tmp_len = 0;
+                char* new_arg = malloc(sizeof(char) * MAXLINE);
+                printf("new arg: %s\n", new_arg);
+                strcpy(new_arg, tmp);
+                new_cmd->argv[new_arg_count] = new_arg;
+                printf("new argv: %s\n", new_cmd->argv[new_arg_count]);
+                new_arg_count++;
+                tmp = realloc(tmp, sizeof(char) * MAXLINE);
+            }
+            else
+            {
+                tmp[tmp_len] = cur_char;
+                tmp_len++;
+            }
+        }
+        free(tmp);
+        free(cur_arg);
+    }
+    new_cmd->name = new_cmd->argv[0];
+    new_cmd->argc = new_arg_count;
+    new_cmd->argv[new_cmd->argc] = 0;
+    return new_cmd;
+}
+
+char *
+is_alias_for(char* arg)
+{
+    char* result = malloc(sizeof(char) * MAXLINE);
+    strcpy(result, arg);
+    aliasT* top_alias = aliases;
+    while(top_alias)
+    {
+        if(strcmp(arg, top_alias->lhs) == 0)
+        {
+            strcpy(result, top_alias->rhs);
+            break;
+        }
+        top_alias = top_alias->next;
+    }
+    return result;
+}
 
 
 /*
@@ -404,7 +474,6 @@ Exec(commandT* cmd, bool forceFork, bool next, bool prev,
             sigaddset(&sigs, SIGCHLD);
             sigprocmask(SIG_BLOCK, &sigs, NULL);
 
-
             pid = fork(); //fork
             if(pid == 0) //Child
             {
@@ -587,7 +656,7 @@ IsBuiltIn(char* cmd)
     // only built in we need to worry about as of now
     if(strcmp( cmd, "cd")==0 || strcmp(cmd, "jobs") == 0 || \
        strcmp(cmd, "fg") == 0 || (strcmp(cmd, "bg") == 0) || \
-       strcmp(cmd, "alias") == 0)
+       strcmp(cmd, "alias") == 0 || strcmp(cmd, "unalias") == 0)
         return TRUE;
     return FALSE;
 } /* IsBuiltIn */
@@ -658,6 +727,8 @@ RunBuiltInCmd(commandT* cmd)
         else
             make_alias(cmd);
     }
+    else if (strcmp(cmd->name, "unalias") == 0)
+        remove_alias(cmd->argv[1]);
     free(path);
     if(do_free)
         freeCommand(cmd);
