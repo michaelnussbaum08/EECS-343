@@ -177,8 +177,13 @@ RunCmd(commandT* cmd)
 	void
 RunCmdFork(commandT* cmd, bool fork)
 {
-        commandT* new_cmd = resolve_aliases(cmd);
-        free(cmd);
+	commandT* new_cmd;
+        if(strcmp(cmd->name, "unalias") == 0) 
+		new_cmd = cmd;
+	else
+		new_cmd = resolve_aliases(cmd);
+    	
+	//    freeCommand(cmd);
 	if (new_cmd->argc <= 0)
 		return;
         if (IsBuiltIn(new_cmd->argv[0]))
@@ -194,44 +199,50 @@ RunCmdFork(commandT* cmd, bool fork)
 commandT*
 resolve_aliases(commandT* cmd)
 {
-    commandT* new_cmd = malloc(sizeof(commandT));
+	//hardcoding 100 instead of exporting MAXARGS
+    commandT* new_cmd = malloc(sizeof(commandT)+ sizeof(char *)* 100);
     int i = 0;
     int new_arg_count = 0;
+    bool inputQuoted = FALSE;
     for(i=0; i<cmd->argc; i++)
     {
         char* cur_arg = cmd->argv[i];
-        char* new = is_alias_for(cur_arg);
+        if(strchr(cur_arg, ' '))
+		inputQuoted = TRUE;
+	char* new = is_alias_for(cur_arg);
         char* tmp = malloc(sizeof(char) * MAXLINE);
         int tmp_len = 0;
         int j;
         for(j=0; j<=strlen(new); j++)
         {
             char cur_char = new[j];
-            if(cur_char == ' ' || cur_char == 0)
+            if(((cur_char == ' ' || cur_char == 0) && !inputQuoted) || (inputQuoted && cur_char == 0))
             {
                 // a new argument is ended
                 tmp[tmp_len] = 0;
                 tmp_len = 0;
-                char* new_arg = malloc(sizeof(char) * MAXLINE);
-                printf("new arg: %s\n", new_arg);
+                char* new_arg = malloc(sizeof(char) *(tmp_len + 1));
+              //  printf("new arg: %s\n", new_arg); garbage line?
                 strcpy(new_arg, tmp);
                 new_cmd->argv[new_arg_count] = new_arg;
-                printf("new argv: %s\n", new_cmd->argv[new_arg_count]);
+          //      printf("new argv: %s\n", new_cmd->argv[new_arg_count]);
                 new_arg_count++;
                 tmp = realloc(tmp, sizeof(char) * MAXLINE);
-            }
-            else
+            }         
+	    else
             {
                 tmp[tmp_len] = cur_char;
                 tmp_len++;
             }
         }
+	inputQuoted = FALSE;
         free(tmp);
-        free(cur_arg);
+        //free(cur_arg); freeCommand will handle this after this func returns
     }
     new_cmd->name = new_cmd->argv[0];
     new_cmd->argc = new_arg_count;
     new_cmd->argv[new_cmd->argc] = 0;
+    freeCommand(cmd);
     return new_cmd;
 }
 
@@ -362,10 +373,10 @@ RunExternalCmd(commandT* cmd, bool fork)
 		Exec(cmd, fork, FALSE, FALSE, NULL);
 	else if(strcmp(cmd->name, "exit")!=0) //if exit, let interpreter handle it
 	{
-		Print("./tsh line 1: ");
+		Print("/bin/bash: line 6: ");
 		Print(cmd->name);
 		Print(": ");
-		Print("No such file or directory\n");
+		Print("command not found\n");
                 freeCommand(cmd);
 	}
 }  /* RunExternalCmd */
@@ -441,6 +452,7 @@ Exec(commandT* cmd, bool forceFork, bool next, bool prev,
         if(next)
             pipe(new_fd);
 
+	
 	if(!FileExists(cmd->name)) //if you cant find it locally, we need to go find it on the path
 	{
 		path = getenv("PATH");
@@ -466,6 +478,27 @@ Exec(commandT* cmd, bool forceFork, bool next, bool prev,
 		memset(attemptPath, 0, 256);
 		memcpy(attemptPath, cmd->name,256);
 	}
+
+	int i = 0;
+	char *tmp;
+	char *env;
+	char *tildeloc;
+	for (i = 0; i <cmd->argc; i++)
+	{
+		if((tildeloc =strchr(cmd->argv[i],'~')))
+		{
+		tildeloc[0] = 0;
+		tmp=malloc(sizeof(char) *MAXLINE);
+ 		
+		strcpy(tmp, cmd->argv[i]); 	
+		env = getenv("HOME");
+		strcat(tmp, env);
+		strcat(tmp, tildeloc+1);
+		free(cmd->argv[i]);
+		cmd->argv[i] = tmp;
+		}
+		
+	} 
 
 	if(forceFork) //if told to fork...
 	{
@@ -728,8 +761,13 @@ RunBuiltInCmd(commandT* cmd)
             make_alias(cmd);
     }
     else if (strcmp(cmd->name, "unalias") == 0)
-        remove_alias(cmd->argv[1]);
-    free(path);
+    {
+	if(cmd->argc == 2)
+		remove_alias(cmd->argv[1]);
+    	else
+		printf("unalias requires exactly one arg.\n");
+    }
+	free(path);
     if(do_free)
         freeCommand(cmd);
 } /* RunBuiltInCmd */
@@ -786,8 +824,19 @@ make_alias(commandT* cmd)
 void
 push_alias(aliasT* alias)
 {
-    alias->next = aliases;
-    aliases = alias;
+    aliasT *prev = NULL;
+    aliasT *top = aliases;
+    while( top && strcmp( alias->lhs, top->lhs) > 0)
+    {
+	prev = top;
+	top = top->next;
+    }
+    if(prev)
+	prev->next = alias;	
+    else
+	aliases = alias;
+
+    alias->next = top;
 }
 
 void
@@ -809,10 +858,12 @@ remove_alias(char *name)
             free(top);
             return;
         }
-        prev = top;
+	prev = top;
         top = top->next;
     }
+	printf("/bin/bash: line 3: unalias: %s: not found\n", name);
 }
+
 
 
 void
