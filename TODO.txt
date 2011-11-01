@@ -1,7 +1,0 @@
-do we need to print quotes?
-BG->FG->BG breaks everything
-
-Not reaping zombie children
-Not printing Done
-
-io redirection we haven't started
