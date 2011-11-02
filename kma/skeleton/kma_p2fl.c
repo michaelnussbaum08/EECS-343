@@ -43,6 +43,8 @@
 #include <assert.h>
 #include <stdlib.h>
 
+
+
 /************Private include**********************************************/
 #include "kpage.h"
 #include "kma.h"
@@ -54,10 +56,25 @@
  *  structures and arrays, line everything up in neat columns.
  */
 
+typedef struct bufferT
+{
+    kma_size_t size;
+    void* ptr;
+    struct bufferT* next_size;
+    struct bufferT* next_buffer;
+    kpage_t* page;
+} buffer_t;
+
 /************Global Variables*********************************************/
-
+static buffer_t* size_table = NULL;
 /************Function Prototypes******************************************/
-
+kma_size_t choose_block_size(kma_size_t);
+void init_size_table(void);
+void* alloc_block(kma_size_t);
+kma_size_t choose_block_size(kma_size_t);
+buffer_t* make_buffers(kma_size_t);
+int last_buf_in_page(buffer_t* size_buf, kpage_t* page);
+void free_page_from_list(buffer_t* size_buf, kpage_t* page);
 /************External Declaration*****************************************/
 
 /**************Implementation***********************************************/
@@ -65,13 +82,170 @@
 void*
 kma_malloc(kma_size_t size)
 {
-  return NULL;
+    if(size_table == NULL)
+        init_size_table();
+    kma_size_t block_size = choose_block_size(size);
+    if(block_size != -1)
+        return alloc_block(block_size);
+    return NULL;
 }
+
+/* Go through size_table until block_size is found. Then find first buffer_t
+ * on free list, take it off free list and return its ptr + sizeof(buffer_t*)
+ */
+void*
+alloc_block(kma_size_t block_size)
+{
+    buffer_t* top = size_table;
+    while(top->size < block_size)
+        top = top->next_size;
+    // found the right size
+    buffer_t* buf = top->next_buffer;
+    if(buf == NULL)
+    {
+        top->next_buffer = make_buffers(top->size);
+        buf = top->next_buffer;
+    }
+
+    if(buf == NULL)
+        return NULL;
+
+    top->next_buffer = buf->next_buffer;
+    buf->next_buffer = top; // set ptr back to size
+    return (buf->ptr + sizeof(buffer_t*));
+}
+
+
+kma_size_t
+choose_block_size(kma_size_t size)
+{
+    int test_size = 32;
+    while(test_size <= PAGESIZE)
+    {
+        if(test_size >= (size + sizeof(buffer_t*)))
+            return test_size;
+        test_size *= 2;
+    }
+    return -1;
+}
+
+
+void
+init_size_table(void)
+{
+    int size = 32;
+    buffer_t* top = malloc(sizeof(buffer_t));
+    top->next_buffer = NULL;
+    top->size = size;
+    size *= 2;
+    top->ptr = NULL;
+    size_table = top;
+    while(size <= PAGESIZE)
+    {
+        top->next_size = malloc(sizeof(buffer_t));
+        top = top->next_size;
+        top->next_buffer = NULL;
+        top->size = size;
+        size *= 2;
+        top->ptr = NULL;
+    }
+    top->next_size = NULL;
+}
+
+buffer_t*
+make_buffers(kma_size_t size)
+{
+    kpage_t* page = get_page();
+    if(page == NULL)
+        return NULL;
+
+    kma_size_t offset = 0;
+    buffer_t* top = malloc(sizeof(buffer_t));
+    buffer_t* first = top;
+    top->ptr = page->ptr + offset;
+    *((buffer_t**)top->ptr) = top;
+    top->next_size = NULL;
+    top->size = size;
+    top->page = page;
+    offset += size;
+    buffer_t* buf;
+    while(offset < PAGESIZE)
+    {
+        buf = malloc(sizeof(buffer_t));
+        top->next_buffer = buf;
+        top = buf;
+        buf->ptr =  page->ptr + offset;
+        offset += size;
+        *((buffer_t**)buf->ptr) = buf;
+        buf->next_size = NULL;
+        buf->size = size;
+        buf->page = page;
+    }
+    top->next_buffer = NULL;
+    return first;
+}
+
+
 
 void
 kma_free(void* ptr, kma_size_t size)
 {
-  ;
+    buffer_t* buf;
+    buf = *((buffer_t**)(ptr - sizeof(buffer_t*)));
+    buffer_t* size_buf = buf->next_buffer;
+    buf->next_buffer = size_buf->next_buffer;
+    size_buf->next_buffer = buf;
+    if(last_buf_in_page(size_buf, buf->page) == 1)
+        free_page_from_list(size_buf, buf->page);
 }
 
+//TODO: free memory here
+void
+free_page_from_list(buffer_t* size_buf, kpage_t* page)
+{
+    buffer_t* prev = size_buf;
+    buffer_t* top = size_buf->next_buffer;
+    while(top != NULL)
+    {
+        if(top->page == page)
+        {
+            while(top != NULL && top->page == page)
+            {
+                top = top->next_buffer;
+            }
+            if(top != NULL)
+            {
+                prev->next_buffer = top;
+                top = top->next_buffer;
+            }
+            else
+                prev->next_buffer = NULL;
+        }
+        else
+        {
+            prev = top;
+            top = top->next_buffer;
+        }
+    }
+    free_page(page);
+}
+
+int
+last_buf_in_page(buffer_t* size_buf, kpage_t* page)
+{
+    buffer_t* top = size_buf->next_buffer;
+    kma_size_t used_buffs_size = 0;
+    while(top != NULL)
+    {
+        if(top->page == page)
+            used_buffs_size += size_buf->size;
+        top = top->next_buffer;
+    }
+    if (used_buffs_size >= PAGESIZE)
+        return 1;
+    return 0;
+}
+
+
 #endif // KMA_P2FL
+
