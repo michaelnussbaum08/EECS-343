@@ -216,6 +216,7 @@ free_page_from_list(buffer_t* size_buf, kpage_t* page)
             if(top != NULL)
             {
                 prev->next_buffer = top;
+                prev = top;
                 top = top->next_buffer;
             }
             else

@@ -73,35 +73,36 @@
 void* kma_malloc(kma_size_t size)
 {
   kpage_t* page;
-  
+
   // get one page
   page = get_page();
-  
+
   // add a pointer to the page structure at the beginning of the page
   *((kpage_t**)page->ptr) = page;
-  
+  // page is in the page itself
+
   if ((size + sizeof(kpage_t*)) > page->size)
     { // requested size too large
       free_page(page);
       return NULL;
     }
-  
+
   // check whether the BASEADDR macro works
   //for (i = 0; i < page->size; i++)
   //{
   //  assert(BASEADDR(page->ptr + i) == page->ptr);
   //}
   // oh yea, it worked
-  
+
   return page->ptr + sizeof(kpage_t*);
 }
 
 void kma_free(void* ptr, kma_size_t size)
 {
   kpage_t* page;
-  
+
   page = *((kpage_t**)(ptr - sizeof(kpage_t*)));
-  
+
   free_page(page);
 }
 
