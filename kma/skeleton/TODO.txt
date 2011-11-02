@@ -1,0 +1,7 @@
+Add counter to our size list data structure so we know when we need to free and
+malloc the control page. We can keep the counter in a 0 size entry on the size
+table.
+
+Then we need to write our own free and malloc that we use instead of the system
+malloc/free where we only use memory from our control page. We can use this
+across algorithms. 
