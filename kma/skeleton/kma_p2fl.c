@@ -42,7 +42,7 @@
 /************System include***********************************************/
 #include <assert.h>
 #include <stdlib.h>
-
+#include <stdio.h>
 
 
 /************Private include**********************************************/
@@ -67,8 +67,10 @@ typedef struct bufferT
 
 /************Global Variables*********************************************/
 static buffer_t* size_table = NULL;
+const int MINBLOCKSIZE = 64;
 /************Function Prototypes******************************************/
 kma_size_t choose_block_size(kma_size_t);
+void deinit_size_table(void);
 void init_size_table(void);
 void* alloc_block(kma_size_t);
 kma_size_t choose_block_size(kma_size_t);
@@ -112,40 +114,60 @@ alloc_block(kma_size_t block_size)
 
     top->next_buffer = buf->next_buffer;
     buf->next_buffer = top; // set ptr back to size
-    return (buf->ptr + sizeof(buffer_t*));
+    return (buf->ptr + sizeof(buffer_t));
 }
 
 
 kma_size_t
 choose_block_size(kma_size_t size)
 {
-    int test_size = 32;
+    int test_size = MINBLOCKSIZE;
     while(test_size <= PAGESIZE)
     {
-        if(test_size >= (size + sizeof(buffer_t*)))
+        if(test_size >= (size + sizeof(buffer_t)))
             return test_size;
         test_size *= 2;
     }
     return -1;
 }
 
+void
+deinit_size_table(void)
+{
+    free_page(size_table->page);
+    size_table = NULL;
+}
 
 void
 init_size_table(void)
 {
-    int size = 32;
-    buffer_t* top = malloc(sizeof(buffer_t));
-    top->next_buffer = NULL;
-    top->size = size;
-    size *= 2;
+    int size = 0;
+    int offset = 0;
+    //this is where we should be bringing down the initial control page    
+    kpage_t* page = get_page();
+    buffer_t* top = page->ptr + offset; 
+    offset += sizeof(buffer_t);
+    top->next_buffer = page->ptr + offset; 
+    top->page = page;
+    top->size = 0;
     top->ptr = NULL;
+    offset += sizeof(buffer_t);
+    buffer_t* counter = top->next_buffer;
+    counter->size = 0;
+    counter->next_buffer = NULL;
+    counter->next_size = NULL;
+    counter->ptr = NULL;
+    counter->page = page;
+    size = MINBLOCKSIZE;
     size_table = top;
     while(size <= PAGESIZE)
     {
-        top->next_size = malloc(sizeof(buffer_t));
+        top->next_size = page->ptr + offset; 
+        offset += sizeof(buffer_t);
         top = top->next_size;
         top->next_buffer = NULL;
         top->size = size;
+        top->page = page;
         size *= 2;
         top->ptr = NULL;
     }
@@ -158,12 +180,12 @@ make_buffers(kma_size_t size)
     kpage_t* page = get_page();
     if(page == NULL)
         return NULL;
-
+    //increment number of pages in use
+    size_table->next_buffer->size++;    
     kma_size_t offset = 0;
-    buffer_t* top = malloc(sizeof(buffer_t));
-    buffer_t* first = top;
+    buffer_t* top = page->ptr + offset;
     top->ptr = page->ptr + offset;
-    *((buffer_t**)top->ptr) = top;
+    buffer_t* first = top;
     top->next_size = NULL;
     top->size = size;
     top->page = page;
@@ -171,12 +193,11 @@ make_buffers(kma_size_t size)
     buffer_t* buf;
     while(offset < PAGESIZE)
     {
-        buf = malloc(sizeof(buffer_t));
+        buf = page->ptr + offset;
+        buf->ptr = page->ptr + offset;
         top->next_buffer = buf;
         top = buf;
-        buf->ptr =  page->ptr + offset;
         offset += size;
-        *((buffer_t**)buf->ptr) = buf;
         buf->next_size = NULL;
         buf->size = size;
         buf->page = page;
@@ -191,12 +212,14 @@ void
 kma_free(void* ptr, kma_size_t size)
 {
     buffer_t* buf;
-    buf = *((buffer_t**)(ptr - sizeof(buffer_t*)));
+    buf = (buffer_t*)(ptr - sizeof(buffer_t));
     buffer_t* size_buf = buf->next_buffer;
     buf->next_buffer = size_buf->next_buffer;
     size_buf->next_buffer = buf;
     if(last_buf_in_page(size_buf, buf->page) == 1)
         free_page_from_list(size_buf, buf->page);
+    if(size_table->next_buffer->size == 0)
+        deinit_size_table();
 }
 
 //TODO: free memory here
@@ -228,6 +251,7 @@ free_page_from_list(buffer_t* size_buf, kpage_t* page)
             top = top->next_buffer;
         }
     }
+    size_table->next_buffer->size--;
     free_page(page);
 }
 
