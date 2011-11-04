@@ -1,0 +1,149 @@
+All size fields indicate size of remaining free space after overhead of buffer_t and buddy_page_t control structs.
+
+Maintains free list with list of pages and the total amount of space they have available.  Checking this free list will avoid traversing some trees that don't have space, but not all.  Not sure if worth it.
+Not going to make trees higher up than a single page because having some buffer_t*s that don't have actual memory associated with them will make coalescing more complicated.
+
+The full bit will only be true if the node is a leaf that's already been malloc'd
+
+Malloc:
+Check free list to find first page with enough space available.
+Search tree on page to find free space.
+If no free space on page tree move onto next page with enough space.
+Else if successful at finding space on tree then decrement space from free list for page and return found space.
+If no pages with enough space then get a new page, make a buffer_t on it, resume search and find it.
+
+struct buddy_pageT
+{
+	buffer_t* top_node
+	kma_size_t free_space
+	struct buddy_pageT* next
+	
+} buddy_page_t
+
+struct bufferT
+{
+	kma_size_t size
+	struct bufferT* parent
+	struct bufferT* sibling
+	struct bufferT* child
+	int full
+	kpage_t* page
+	void* ptr
+
+} buffer_t
+
+void*
+kma_malloc(kma_size_t size):
+	buddy_page_t* page = page_list
+	return malloc_to_page(size, page)
+
+void*
+malloc_to_page(kma_size_t size, buddy_page_t* page):
+	if page == NULL:
+		buddy_page_t* new_page = add_new_page()
+		if not new_page:
+			// This only occurs if get_page() fails
+			return NULL
+		return malloc_to_page(size, new_page)
+	else if page_has_space(size, page)
+		void* mem_loc = search_and_alloc(size, page->top_node)
+		if mem_loc:
+			page->free_space -= size
+			return mem_loc
+	// If page doesn't have space (which can be discovered in page_has_space()
+	// or in search_and_alloc() then try next page.
+	return malloc_to_page(size, page->next)
+
+buddy_page_t*
+add_new_page(void):
+	buddy_page_t* top = buddy_page_list
+	while(top->next):
+		top = top->next
+	kpage_t* raw_page = get_page()
+	if not raw_page:
+		return NULL
+	// Put control structs on new page
+	buddy_page_t* new = (buddy_page_t*)raw_page->ptr
+	buffer_t* top_node = (buffer_t*)(new + sizeof(buffer_t))
+	init_top_node(top_node, raw_page)
+	new->top_node = top_node
+	new->free_space = raw_page->size - (kma_size_t)(sizeof(buddy_page_t) + sizeof(buffer_t))
+	new->next = NULL
+	top->next = new
+	return new
+
+
+buddy_page_t*
+find_page_with_space(kma_size_t size):
+	for buddy_page in buddy_page_list:
+		if budy_page->free_space >= size:
+			return buddy_page
+	return NULL
+
+void*
+search_and_alloc(kma_size_t need_size, buffer_t* node):
+	if node->full == TRUE:
+		// Node is a fully malloc'd leaf
+		return NULL
+	else if node->child == NULL:
+		// Free leaf
+		return split_to_size(need_size, node)
+	else:
+		// Not a leaf node, check if space in children
+		// First check left child
+		void* found_space = split_to_size(need_size, node->child)
+		if found_space:
+			return found_space
+		else:
+			// Then check right child, left child's sibling
+			return split_to_size(need_size, node->child->sibling) 
+			
+void*
+split_to_size(kma_size_t need_size, buffer_t* node):
+	if node->size >= need_size and (node->size/2 - sizeof(buffer_t)) < need_size:
+		// Node is right size leaf node, mark as full and return ptr
+		node->full = TRUE
+		return node->ptr
+	else if (node->size/2 - sizeof(buffer_t)) < MINBUFFERSIZE or node->size < need_size:
+		// No space to be found
+		return NULL
+	else:
+		// Node is too big, make children and recur on on left child 
+		// (left or right is arbitrary choice)
+		buffer_t* l_child = init_child(LEFT, node)
+		init_child(RIGHT, node)
+		return split_to_size(need_size, l_child)
+
+buffer_t*
+init_child(side, buffer_t* parent):
+	buffer_t* child
+	if side == LEFT:
+		child = (buffer_t*)(parent + sizeof(buffer_t))
+		child->sibling = (buffer_t*)(parent->size/2 + sizeof(buffer_t))
+		parent->child = child
+	else if side == RIGHT:
+		child = (buffer_t*)(parent->size/2 + sizeof(buffer_t))
+		child->sibling = (buffer_t*)(parent + sizeof(buffer_t))
+	child->full = FALSE
+	child->size = (parent->size/2) - sizeof(buffer_t)
+	child->parent = parent
+	child->child = NULL;
+	child->page = parent->page
+	child->ptr = child + sizeof(buffer_t)
+	return child
+		
+		
+/* First node on tree ie first node on page */
+void
+init_top_node(buffer_t* node, kpage_t* page):
+	node->parent = NULL
+	node->child = NULL
+	node->sibling = NULL
+	int overhead_size = sizeof(buddy_page_t) + sizeof(buffer_t)
+	node->ptr = page->ptr + overhead_size
+	node->size = page->size - overhead_size
+	node->full = FALSE
+	node->page = page
+
+Free:
+Get buffer_t from ptr. Check if sibling is free, if so start coalescing.  If not then just mark buffer_t as free.
