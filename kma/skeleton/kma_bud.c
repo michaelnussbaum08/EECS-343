@@ -59,6 +59,8 @@
 #define FALSE 0
 #define TRUE 1
 
+#define MINBUFFERSIZE 64
+
 /*
 * All size fields indicate size of remaining free space after overhead of
 * buffer_t and buddy_page_t control structs.
@@ -74,7 +76,22 @@
 * malloc'd
 */
 
-struct buddy_pageT
+struct buddy_pageT;
+
+typedef struct bufferT
+{
+    kma_size_t size;
+    struct bufferT* parent;
+    struct bufferT* sibling;
+    struct bufferT* child;
+    struct buddy_pageT* page;
+    int full;
+    void* ptr;
+
+} buffer_t;
+
+
+typedef struct buddy_pageT
 {
     buffer_t* top_node;
     kma_size_t free_space;
@@ -82,19 +99,7 @@ struct buddy_pageT
     struct buddy_pageT* next;
     struct buddy_pageT* prev;
 
-} buddy_page_t
-
-struct bufferT
-{
-    kma_size_t size;
-    struct bufferT* parent;
-    struct bufferT* sibling;
-    struct bufferT* child;
-    buddy_page_t* page;
-    int full;
-    void* ptr;
-
-} buffer_t
+} buddy_page_t;
 
 
 /************Global Variables*********************************************/
@@ -108,8 +113,8 @@ buddy_page_t* add_new_page(void);
 int page_has_space(kma_size_t size, buddy_page_t* page);
 void* search_and_alloc(kma_size_t need_size, buffer_t* node);
 void* split_to_size(kma_size_t need_size, buffer_t* node);
-buffer_t* init_child(side, buffer_t* parent);
-void init_top_node(buffer_t* node, kpage_t* page);
+buffer_t* init_child(int side, buffer_t* parent);
+void init_top_node(buffer_t* node, kpage_t* page, buddy_page_t* buddy_page);
 void coalesce(buffer_t* node);
 int totally_free(buffer_t* node);
 void free_node(buffer_t* node);
@@ -140,7 +145,7 @@ alloc_to_page(kma_size_t size, buddy_page_t* page)
     if(page == NULL)
     {
         buddy_page_t* new_page = add_new_page();
-        if not new_page
+        if(new_page == NULL)
         {
             // This only occurs if get_page() fails
             return NULL;
@@ -164,7 +169,7 @@ alloc_to_page(kma_size_t size, buddy_page_t* page)
 buddy_page_t*
 add_new_page(void)
 {
-    buddy_page_t* prev = NULL
+    buddy_page_t* prev = NULL;
     buddy_page_t* top = buddy_page_list;
     while(top != NULL)
     {
@@ -177,15 +182,16 @@ add_new_page(void)
     // Put control structs on new page
     buddy_page_t* new = (buddy_page_t*)raw_page->ptr;
     buffer_t* top_node = (buffer_t*)(raw_page->ptr + sizeof(buddy_page_t));
-    init_top_node(top_node, raw_page);
+    init_top_node(top_node, raw_page, new);
     new->top_node = top_node;
     new->raw_page = raw_page;
-    new->free_space = raw_page->size - (kma_size_t)(sizeof(buddy_page_t) + \
-      sizeof(buffer_t));
+    new->free_space = raw_page->size - (kma_size_t)sizeof(buddy_page_t);
     new->next = NULL;
     new->prev = top;
     if(top != NULL)
         top->next = new;
+    else
+        buddy_page_list = new;
     return new;
 }
 
@@ -193,7 +199,7 @@ add_new_page(void)
 int
 page_has_space(kma_size_t size, buddy_page_t* page)
 {
-    if(budy_page->free_space >= size)
+    if(page->free_space >= size)
         return TRUE;
     return FALSE;
 }
@@ -216,17 +222,18 @@ search_and_alloc(kma_size_t need_size, buffer_t* node)
     {
         // Not a leaf node, check if space in children
         // First check left child
-        void* found_space = split_to_size(need_size, node->child);
+        void* found_space = search_and_alloc(need_size, node->child);
         if(found_space)
             return found_space;
         else
         {
             // Then check right child, left child's sibling
-            return split_to_size(need_size, node->child->sibling);
+            return search_and_alloc(need_size, node->child->sibling);
         }
     }
 }
 
+/* This function is only called on leaf nodes */
 void*
 split_to_size(kma_size_t need_size, buffer_t* node)
 {
@@ -254,19 +261,19 @@ split_to_size(kma_size_t need_size, buffer_t* node)
 }
 
 buffer_t*
-init_child(side, buffer_t* parent)
+init_child(int side, buffer_t* parent)
 {
     buffer_t* child;
     if(side == LEFT)
     {
-        child = (buffer_t*)(parent + sizeof(buffer_t));
-        child->sibling = (buffer_t*)(parent->size/2 + sizeof(buffer_t));
+        child = (buffer_t*)parent->ptr;
         parent->child = child;
+        child->sibling = (buffer_t*)((parent->size/2) + parent->ptr); // Right sibling
     }
     else if(side == RIGHT)
     {
-        child = (buffer_t*)(parent->size/2 + sizeof(buffer_t));
-        child->sibling = (buffer_t*)(parent + sizeof(buffer_t));
+        child = (buffer_t*)((parent->size/2) + parent->ptr);
+        child->sibling = (buffer_t*)parent->ptr; // Left sibling
     }
     child->full = FALSE;
     child->size = (parent->size/2) - sizeof(buffer_t);
@@ -274,22 +281,24 @@ init_child(side, buffer_t* parent)
     child->child = NULL;
     child->ptr = child + sizeof(buffer_t);
     child->page = parent->page;
+    child->page->free_space -= sizeof(buffer_t);
     return child;
 }
 
 /* First node on tree ie first node on page */
 void
-init_top_node(buffer_t* node, kpage_t* page)
+init_top_node(buffer_t* node, kpage_t* raw_page, buddy_page_t* buddy_page)
 {
     node->parent = NULL;
     node->child = NULL;
     node->sibling = NULL;
     // The buddy_page_t struct is the only thing already on the page
     size_t overhead_size = sizeof(buddy_page_t) + sizeof(buffer_t);
-    node->ptr = (void*)(page->ptr + overhead_size);
-    node->size = (kma_size_t)(page->size - overhead_size);
+    node->ptr = (void*)(raw_page->ptr + overhead_size);
+    node->size = (kma_size_t)(raw_page->size - overhead_size);
     node->full = FALSE;
-    node->page = page;
+    node->page = buddy_page;
+    buddy_page->free_space -= sizeof(buffer_t);
 }
 
 /*
@@ -301,7 +310,7 @@ void
 kma_free(void* ptr, kma_size_t size)
 {
     buffer_t* buf;
-    buf = (buffer_t*)(ptr - sizeof(buffer_t));
+    buf = (buffer_t*)(ptr - sizeof(buffer_t)); //- 3080);
     coalesce(buf);
 }
 
@@ -316,6 +325,8 @@ coalesce(buffer_t* node)
             node->page->prev = node->page->next;
         if(node->page->next)
             node->page->next->prev = node->page->prev;
+        if(buddy_page_list == node->page)
+            buddy_page_list = NULL;
         free_page(node->page->raw_page);
     }
     else if(totally_free(node->sibling) == TRUE)
