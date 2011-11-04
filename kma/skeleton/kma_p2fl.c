@@ -143,11 +143,11 @@ init_size_table(void)
 {
     int size = 0;
     int offset = 0;
-    //this is where we should be bringing down the initial control page    
+    //this is where we should be bringing down the initial control page
     kpage_t* page = get_page();
-    buffer_t* top = page->ptr + offset; 
+    buffer_t* top = page->ptr + offset;
     offset += sizeof(buffer_t);
-    top->next_buffer = page->ptr + offset; 
+    top->next_buffer = page->ptr + offset;
     top->page = page;
     top->size = 0;
     top->ptr = NULL;
@@ -162,7 +162,7 @@ init_size_table(void)
     size_table = top;
     while(size <= PAGESIZE)
     {
-        top->next_size = page->ptr + offset; 
+        top->next_size = page->ptr + offset;
         offset += sizeof(buffer_t);
         top = top->next_size;
         top->next_buffer = NULL;
@@ -181,7 +181,7 @@ make_buffers(kma_size_t size)
     if(page == NULL)
         return NULL;
     //increment number of pages in use
-    size_table->next_buffer->size++;    
+    size_table->next_buffer->size++;
     kma_size_t offset = 0;
     buffer_t* top = page->ptr + offset;
     top->ptr = page->ptr + offset;
@@ -222,7 +222,6 @@ kma_free(void* ptr, kma_size_t size)
         deinit_size_table();
 }
 
-//TODO: free memory here
 void
 free_page_from_list(buffer_t* size_buf, kpage_t* page)
 {
