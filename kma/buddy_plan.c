@@ -1,78 +1,30 @@
-/***************************************************************************
- *  Title: Kernel Memory Allocator
- * -------------------------------------------------------------------------
- *    Purpose: Kernel memory allocator based on the buddy algorithm
- *    Author: Stefan Birrer
- *    Version: $Revision: 1.2 $
- *    Last Modification: $Date: 2009/10/31 21:28:52 $
- *    File: $RCSfile: kma_bud.c,v $
- *    Copyright: 2004 Northwestern University
- ***************************************************************************/
-/***************************************************************************
- *  ChangeLog:
- * -------------------------------------------------------------------------
- *    $Log: kma_bud.c,v $
- *    Revision 1.2  2009/10/31 21:28:52  jot836
- *    This is the current version of KMA project 3.
- *    It includes:
- *    - the most up-to-date handout (F'09)
- *    - updated skeleton including
- *        file-driven test harness,
- *        trace generator script,
- *        support for evaluating efficiency of algorithm (wasted memory),
- *        gnuplot support for plotting allocation and waste,
- *        set of traces for all students to use (including a makefile and README of the settings),
- *    - different version of the testsuite for use on the submission site, including:
- *        scoreboard Python scripts, which posts the top 5 scores on the course webpage
- *
- *    Revision 1.1  2005/10/24 16:07:09  sbirrer
- *    - skeleton
- *
- *    Revision 1.2  2004/11/05 15:45:56  sbirrer
- *    - added size as a parameter to kma_free
- *
- *    Revision 1.1  2004/11/03 23:04:03  sbirrer
- *    - initial version for the kernel memory allocator project
- *
- ***************************************************************************/
-#ifdef KMA_BUD
-#define __KMA_IMPL__
+/*
+All size fields indicate size of remaining free space after overhead of
+buffer_t and buddy_page_t control structs.
 
-/************System include***********************************************/
-#include <assert.h>
-#include <stdlib.h>
+Maintains free list with list of pages and the total amount of space they have
+available.  Checking this free list will avoid traversing some trees that don't
+have space, but not all.  Not sure if worth it.  Not going to make trees higher
+up than a single page because having some buffer_t*s that don't have actual
+memory associated with them will make coalescing more complicated.
 
-/************Private include**********************************************/
-#include "kpage.h"
-#include "kma.h"
+The full bit will only be true if the node is a leaf that's already been
+malloc'd
 
-/************Defines and Typedefs*****************************************/
-/*  #defines and typedefs should have their names in all caps.
- *  Global variables begin with g. Global constants with k. Local
- *  variables should be in all lower case. When initializing
- *  structures and arrays, line everything up in neat columns.
- */
+Malloc:
+Check free list to find first page with enough space available.  Search
+tree on page to find free space.  If no free space on page tree move onto next
+page with enough space.  Else if successful at finding space on tree then
+decrement space from free list for page and return found space.  If no pages
+with enough space then get a new page, make a buffer_t on it, resume search and
+find it.
+*/
 
 #define LEFT 10
 #define RIGHT 11
 
 #define FALSE 0
 #define TRUE 1
-
-/*
-* All size fields indicate size of remaining free space after overhead of
-* buffer_t and buddy_page_t control structs.
-*
-* Maintains a free list with list of pages and the total amount of space they
-* have available.  Checking this free list will avoid traversing some trees
-* that don't have space, but not all.  Not sure if worth it.  Not going to make
-* trees higher up than a single page because having some buffer_t*s that don't
-* have actual memory associated with them will make coalescing more
-* complicated.
-*
-* The full field will only be true if the node is a leaf that's already been
-* malloc'd
-*/
 
 struct buddy_pageT
 {
@@ -96,41 +48,10 @@ struct bufferT
 
 } buffer_t
 
-
-/************Global Variables*********************************************/
-
-static buddy_page_t* buddy_page_list = NULL;
-
-/************Function Prototypes******************************************/
-
-void* alloc_to_page(kma_size_t size, buddy_page_t* page);
-buddy_page_t* add_new_page(void);
-int page_has_space(kma_size_t size, buddy_page_t* page);
-void* search_and_alloc(kma_size_t need_size, buffer_t* node);
-void* split_to_size(kma_size_t need_size, buffer_t* node);
-buffer_t* init_child(side, buffer_t* parent);
-void init_top_node(buffer_t* node, kpage_t* page);
-void coalesce(buffer_t* node);
-int totally_free(buffer_t* node);
-void free_node(buffer_t* node);
-
-/************External Declaration*****************************************/
-
-/**************Implementation***********************************************/
-
-/*
-* Malloc: Check free list to find first page with enough space available.
-* Search tree on page to find free space.  If no free space on page tree move
-* onto next page with enough space.  Else if successful at finding space on
-* tree then decrement space from free list for page and return found space.  If
-* no pages with enough space then get a new page, make a buffer_t on it, resume
-* search and find it.
-*/
-
 void*
 kma_malloc(kma_size_t size)
 {
-    buddy_page_t* page = buddy_page_list;
+    buddy_page_t* page = page_list;
     return alloc_to_page(size, page);
 }
 
@@ -197,8 +118,6 @@ page_has_space(kma_size_t size, buddy_page_t* page)
         return TRUE;
     return FALSE;
 }
-
-
 void*
 search_and_alloc(kma_size_t need_size, buffer_t* node)
 {
@@ -351,7 +270,4 @@ free_node(buffer_t* node)
     node->page->free_space += node->size;
 
 }
-
-
-#endif // KMA_BUD
 
