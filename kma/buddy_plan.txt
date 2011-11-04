@@ -23,7 +23,7 @@ struct buddy_pageT
     buffer_t* top_node
     kma_size_t free_space
     struct buddy_pageT* next
-    
+
 } buddy_page_t
 
 struct bufferT
@@ -33,7 +33,6 @@ struct bufferT
     struct bufferT* sibling
     struct bufferT* child
     int full
-    kpage_t* page
     void* ptr
 
 } buffer_t
@@ -102,8 +101,8 @@ search_and_alloc(kma_size_t need_size, buffer_t* node):
             return found_space
         else:
             // Then check right child, left child's sibling
-            return split_to_size(need_size, node->child->sibling) 
-            
+            return split_to_size(need_size, node->child->sibling)
+
 void*
 split_to_size(kma_size_t need_size, buffer_t* node):
     if node->size >= need_size && (node->size/2 - sizeof(buffer_t)) < need_size:
@@ -115,7 +114,7 @@ split_to_size(kma_size_t need_size, buffer_t* node):
         // No space to be found
         return NULL
     else:
-        // Node is too big, make children and recur on on left child 
+        // Node is too big, make children and recur on on left child
         // (left or right is arbitrary choice)
         buffer_t* l_child = init_child(LEFT, node)
         init_child(RIGHT, node)
@@ -135,7 +134,6 @@ init_child(side, buffer_t* parent):
     child->size = (parent->size/2) - sizeof(buffer_t)
     child->parent = parent
     child->child = NULL;
-    child->page = parent->page
     child->ptr = child + sizeof(buffer_t)
     return child
 
@@ -146,11 +144,11 @@ init_top_node(buffer_t* node, kpage_t* page):
     node->parent = NULL
     node->child = NULL
     node->sibling = NULL
-    int overhead_size = sizeof(buddy_page_t) + sizeof(buffer_t)
-    node->ptr = page->ptr + overhead_size
-    node->size = page->size - overhead_size
+    // The buddy_page_t struct is the only thing already on the page
+    size_t overhead_size = sizeof(buddy_page_t) + sizeof(buffer_t)
+    node->ptr = (void*)(page->ptr + overhead_size)
+    node->size = (kma_size_t)(page->size - overhead_size)
     node->full = FALSE
-    node->page = page
 
 Free:
 Get buffer_t from ptr. Check if sibling is free, if so start coalescing.
