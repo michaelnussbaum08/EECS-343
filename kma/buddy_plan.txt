@@ -41,24 +41,24 @@ struct bufferT
 void*
 kma_malloc(kma_size_t size):
     buddy_page_t* page = page_list
-    return malloc_to_page(size, page)
+    return alloc_to_page(size, page)
 
 void*
-malloc_to_page(kma_size_t size, buddy_page_t* page):
+alloc_to_page(kma_size_t size, buddy_page_t* page):
     if page == NULL:
         buddy_page_t* new_page = add_new_page()
         if not new_page:
             // This only occurs if get_page() fails
             return NULL
-        return malloc_to_page(size, new_page)
+        return alloc_to_page(size, new_page)
     else if page_has_space(size, page)
         void* mem_loc = search_and_alloc(size, page->top_node)
         if mem_loc:
             page->free_space -= size
             return mem_loc
     // If page doesn't have space (which can be discovered in page_has_space()
-    // or in search_and_alloc() then try next page.
-    return malloc_to_page(size, page->next)
+    // or in search_and_alloc()) then try next page.
+    return alloc_to_page(size, page->next)
 
 buddy_page_t*
 add_new_page(void):
@@ -70,7 +70,7 @@ add_new_page(void):
         return NULL
     // Put control structs on new page
     buddy_page_t* new = (buddy_page_t*)raw_page->ptr
-    buffer_t* top_node = (buffer_t*)(new + sizeof(buffer_t))
+    buffer_t* top_node = (buffer_t*)(raw_page->ptr + sizeof(buddy_page_t))
     init_top_node(top_node, raw_page)
     new->top_node = top_node
     new->free_space = raw_page->size - (kma_size_t)(sizeof(buddy_page_t) + \
@@ -80,12 +80,11 @@ add_new_page(void):
     return new
 
 
-buddy_page_t*
-find_page_with_space(kma_size_t size):
-    for buddy_page in buddy_page_list:
-        if budy_page->free_space >= size:
-            return buddy_page
-    return NULL
+int
+page_has_space(kma_size_t size, buddy_page_t* page):
+    if budy_page->free_space >= size:
+        return TRUE
+    return FALSE
 
 void*
 search_and_alloc(kma_size_t need_size, buffer_t* node):
@@ -107,7 +106,7 @@ search_and_alloc(kma_size_t need_size, buffer_t* node):
             
 void*
 split_to_size(kma_size_t need_size, buffer_t* node):
-    if node->size >= need_size and (node->size/2 - sizeof(buffer_t)) < need_size:
+    if node->size >= need_size && (node->size/2 - sizeof(buffer_t)) < need_size:
         // Node is right size leaf node, mark as full and return ptr
         node->full = TRUE
         return node->ptr
@@ -154,4 +153,5 @@ init_top_node(buffer_t* node, kpage_t* page):
     node->page = page
 
 Free:
-Get buffer_t from ptr. Check if sibling is free, if so start coalescing.  If not then just mark buffer_t as free.
+Get buffer_t from ptr. Check if sibling is free, if so start coalescing.
+If not then just mark buffer_t as free.
