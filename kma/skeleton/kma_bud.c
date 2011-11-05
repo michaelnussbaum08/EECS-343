@@ -208,7 +208,9 @@ page_has_space(kma_size_t size, buddy_page_t* page)
 void*
 search_and_alloc(kma_size_t need_size, buffer_t* node)
 {
-    if(node->full == TRUE)
+    if(node->size < need_size)
+        return NULL;
+    else if(node->full == TRUE)
     {
         // Node is a fully malloc'd leaf
         return NULL;
@@ -237,8 +239,9 @@ search_and_alloc(kma_size_t need_size, buffer_t* node)
 void*
 split_to_size(kma_size_t need_size, buffer_t* node)
 {
-    if(node->size >= need_size && \
-      (node->size/2 - sizeof(buffer_t)) < need_size)
+    if((node->size >= need_size && \
+      (node->size/2 - sizeof(buffer_t)) < need_size) || \
+      ((node->size/2 - sizeof(buffer_t)) < MINBUFFERSIZE))
     {
         // Node is right size leaf node, mark as full and return ptr
         node->full = TRUE;
@@ -279,7 +282,7 @@ init_child(int side, buffer_t* parent)
     child->size = (parent->size/2) - sizeof(buffer_t);
     child->parent = parent;
     child->child = NULL;
-    child->ptr = child + sizeof(buffer_t);
+    child->ptr = (void*)child + sizeof(buffer_t);
     child->page = parent->page;
     child->page->free_space -= sizeof(buffer_t);
     return child;
@@ -310,7 +313,7 @@ void
 kma_free(void* ptr, kma_size_t size)
 {
     buffer_t* buf;
-    buf = (buffer_t*)(ptr - sizeof(buffer_t)); //- 3080);
+    buf = (buffer_t*)(ptr - sizeof(buffer_t));
     coalesce(buf);
 }
 
