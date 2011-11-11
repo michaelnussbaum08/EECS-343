@@ -102,6 +102,16 @@ typedef struct buddy_pageT
 } buddy_page_t;
 
 
+typedef struct shell_pageT
+{
+    buffer_t* top_node;
+    kpage_t* raw_page;
+    shell_pageT* parent;
+    shell_pageT* child;
+    shell_pageT* sibling;
+} shell_page_t;
+
+
 /************Global Variables*********************************************/
 
 static buddy_page_t* buddy_page_list = NULL;
