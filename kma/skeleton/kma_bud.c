@@ -102,6 +102,7 @@ kma_malloc(kma_size_t size)
 {
     if(free_list == NULL)
         init_free_list();
+    print_free_list("top of kma_malloc");
     kma_size_t block_size = choose_block_size(size);
     if(block_size != -1)
     {
@@ -138,7 +139,8 @@ add_new_page(void)
 
     // init buffer to store bitmap on page
     buffer_t* buf = init_buffer(size_header, page->ptr, page);
-    buf->prev_buffer = size_header;
+    //I think the line below is already taken car of in init_buffer
+    //buf->prev_buffer = size_header;
     kma_size_t block_size = choose_block_size(BITMAPSIZE);
     buffer_t* bitmap_mem = split_to_size(block_size, buf);
 
@@ -244,7 +246,7 @@ search_for_buffer(kma_size_t size)
 buffer_t*
 split_to_size(kma_size_t need_size, buffer_t* node)
 {
-    if((node->size/2 < need_size) || (node->size/2 < MINBUFFERSIZE))
+    if((node->size/2 < need_size) || (node->size/2 <= MINBUFFERSIZE))
     {
         // found right size
         return node;
@@ -253,14 +255,19 @@ split_to_size(kma_size_t need_size, buffer_t* node)
     {
         // Node is too big, make children and recur on on left child
         // (left or right is arbitrary choice)
+
         // parent's prev buffer is it's size header, the size header's prev buffer
         // is the next smaller size header
-
-        buffer_t* child_size_header = node->prev_buffer->prev_buffer;
-        void* right_ptr = (node->size/2) + node->ptr;
+        buffer_t* parent_size_header = node->prev_buffer;
+        buffer_t* child_size_header = parent_size_header->prev_buffer;
+        void* right_ptr = (node->size/2) + (void*)node;
+        //void* right_ptr = (node->size/2) + node->ptr; // I think node->ptr is
+        //wrong because then we accumulate offsets of sizeof(buffer_t), when we
+        //actuall want to eliminate the offsets. Confirmed this fix stops the
+        //segfault in min.trace, but there is still one.
+        remove_buf_from_free_list(parent_size_header);
         init_buffer(child_size_header, right_ptr, node->page);
-        buffer_t* l_child = init_buffer(child_size_header, node->ptr, node->page);
-        remove_buf_from_free_list(node);
+        buffer_t* l_child = init_buffer(child_size_header, (void*)node, node->page);
         return split_to_size(need_size, l_child);
     }
 }
@@ -273,24 +280,29 @@ init_buffer(buffer_t* size_header, void* ptr, kpage_t* page)
     //child->size = (size_header->size/2);
     child->next_size = NULL;
     child->ptr = ptr + sizeof(buffer_t);
+
+    //CHECK THAT CHILD->PTR IS IN RIGHT PLACE
+
     child->page = page;
     child->next_buffer = size_header->next_buffer;
     if(size_header->next_buffer)
         size_header->next_buffer->prev_buffer = child;
     size_header->next_buffer = child;
-    print_free_list("after assigning");
     child->prev_buffer = size_header;
-    //printf("child->prev size: %d -- header size: %d\n", child->next_buffer, size_header->size);
-    print_free_list("end of init_buffer");
     return child;
 }
 
 void
-remove_buf_from_free_list(buffer_t* node)
+remove_buf_from_free_list(buffer_t* size_header)
 {
+    if(size_header->next_buffer->next_buffer)
+        size_header->next_buffer->next_buffer->prev_buffer = size_header;
+    size_header->next_buffer = size_header->next_buffer->next_buffer;
+    /*
     node->prev_buffer->next_buffer = node->next_buffer;
     if(node->next_buffer)
         node->next_buffer->prev_buffer = node->prev_buffer;
+        */
 }
 
 
