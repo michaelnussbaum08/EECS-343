@@ -148,11 +148,14 @@ add_new_page(void)
     return 0;
 }
 
+int counter = 0;
+
 void
 alloc(buffer_t* node)
 {
+    printf("COUNTER: %d\n", counter++);
     set_bitmap(node, 255);
-    remove_buf_from_free_list(node);
+    remove_buf_from_free_list(node->prev_buffer);
 }
 
 void
