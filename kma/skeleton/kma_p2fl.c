@@ -72,7 +72,6 @@ kma_size_t choose_block_size(kma_size_t);
 void deinit_size_table(void);
 void init_size_table(void);
 void* alloc_block(kma_size_t);
-kma_size_t choose_block_size(kma_size_t);
 buffer_t* make_buffers(kma_size_t);
 int last_buf_in_page(buffer_t* size_buf, kpage_t* page);
 void free_page_from_list(buffer_t* size_buf, kpage_t* page);
