@@ -137,13 +137,10 @@ add_new_page(void)
     }
 
     // init buffer to store bitmap on page
-    print_free_list("before init in add_new_page");
     buffer_t* buf = init_buffer(size_header, page->ptr, page);
-    print_free_list("after init in add_new_page");
     buf->prev_buffer = size_header;
     kma_size_t block_size = choose_block_size(BITMAPSIZE);
     buffer_t* bitmap_mem = split_to_size(block_size, buf);
-    print_free_list("after split_to_size in add_new_page");
 
     set_bitmap(bitmap_mem, 255);
     return 0;
@@ -275,7 +272,7 @@ init_buffer(buffer_t* size_header, void* ptr, kpage_t* page)
     child->size = size_header->size;
     //child->size = (size_header->size/2);
     child->next_size = NULL;
-    child->ptr = (void*)child + sizeof(buffer_t);
+    child->ptr = ptr + sizeof(buffer_t);
     child->page = page;
     child->next_buffer = size_header->next_buffer;
     if(size_header->next_buffer)
@@ -283,6 +280,7 @@ init_buffer(buffer_t* size_header, void* ptr, kpage_t* page)
     size_header->next_buffer = child;
     print_free_list("after assigning");
     child->prev_buffer = size_header;
+    //printf("child->prev size: %d -- header size: %d\n", child->next_buffer, size_header->size);
     print_free_list("end of init_buffer");
     return child;
 }
