@@ -102,7 +102,6 @@ kma_malloc(kma_size_t size)
 {
     if(free_list == NULL)
         init_free_list();
-    print_free_list("top of kma_malloc");
     kma_size_t block_size = choose_block_size(size);
     if(block_size != -1)
     {
@@ -148,12 +147,9 @@ add_new_page(void)
     return 0;
 }
 
-int counter = 0;
-
 void
 alloc(buffer_t* node)
 {
-    printf("COUNTER: %d\n", counter++);
     set_bitmap(node, 255);
     remove_buf_from_free_list(node->prev_buffer);
 }
