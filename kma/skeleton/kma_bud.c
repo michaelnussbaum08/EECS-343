@@ -138,8 +138,6 @@ add_new_page(void)
 
     // init buffer to store bitmap on page
     buffer_t* buf = init_buffer(size_header, page->ptr, page);
-    //I think the line below is already taken car of in init_buffer
-    //buf->prev_buffer = size_header;
     kma_size_t block_size = choose_block_size(BITMAPSIZE);
     buffer_t* bitmap_mem = split_to_size(block_size, buf);
 
@@ -260,10 +258,6 @@ split_to_size(kma_size_t need_size, buffer_t* node)
         buffer_t* parent_size_header = node->prev_buffer;
         buffer_t* child_size_header = parent_size_header->prev_buffer;
         void* right_ptr = (node->size/2) + (void*)node;
-        //void* right_ptr = (node->size/2) + node->ptr; // I think node->ptr is
-        //wrong because then we accumulate offsets of sizeof(buffer_t), when we
-        //actuall want to eliminate the offsets. Confirmed this fix stops the
-        //segfault in min.trace, but there is still one.
         remove_buf_from_free_list(parent_size_header);
         init_buffer(child_size_header, right_ptr, node->page);
         buffer_t* l_child = init_buffer(child_size_header, (void*)node, node->page);
@@ -276,12 +270,8 @@ init_buffer(buffer_t* size_header, void* ptr, kpage_t* page)
 {
     buffer_t* child = (buffer_t*)ptr;
     child->size = size_header->size;
-    //child->size = (size_header->size/2);
     child->next_size = NULL;
     child->ptr = ptr + sizeof(buffer_t);
-
-    //CHECK THAT CHILD->PTR IS IN RIGHT PLACE
-
     child->page = page;
     child->next_buffer = size_header->next_buffer;
     if(size_header->next_buffer)
@@ -291,17 +281,15 @@ init_buffer(buffer_t* size_header, void* ptr, kpage_t* page)
     return child;
 }
 
+/* We should always allocate the first node on the free list for the size, ie
+ * size_header->next_buffer
+ */
 void
 remove_buf_from_free_list(buffer_t* size_header)
 {
     if(size_header->next_buffer->next_buffer)
         size_header->next_buffer->next_buffer->prev_buffer = size_header;
     size_header->next_buffer = size_header->next_buffer->next_buffer;
-    /*
-    node->prev_buffer->next_buffer = node->next_buffer;
-    if(node->next_buffer)
-        node->next_buffer->prev_buffer = node->prev_buffer;
-        */
 }
 
 
