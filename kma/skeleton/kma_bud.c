@@ -43,6 +43,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <stdio.h>
+
 /************Private include**********************************************/
 #include "kpage.h"
 #include "kma.h"
@@ -53,12 +55,6 @@
  *  variables should be in all lower case. When initializing
  *  structures and arrays, line everything up in neat columns.
  */
-
-#define LEFT 10
-#define RIGHT 11
-
-#define FALSE 0
-#define TRUE 1
 
 #define MINBUFFERSIZE 64
 
@@ -79,6 +75,10 @@ typedef struct bufferT
 static buffer_t* free_list = NULL;
 
 /************Function Prototypes******************************************/
+
+//REMOVE
+void print_free_list(char*);
+
 void deinit_free_list(void);
 void init_free_list(void);
 void alloc(buffer_t* buf);
@@ -135,10 +135,15 @@ add_new_page(void)
         else
             size_header = size_header->next_size;
     }
-   buffer_t* buf = init_buffer(size_header, page->ptr, page);
-   buf->prev_buffer = size_header;
-   kma_size_t block_size = choose_block_size(BITMAPSIZE);
-   buffer_t* bitmap_mem = split_to_size(block_size, buf);
+
+    // init buffer to store bitmap on page
+    print_free_list("before init in add_new_page");
+    buffer_t* buf = init_buffer(size_header, page->ptr, page);
+    print_free_list("after init in add_new_page");
+    buf->prev_buffer = size_header;
+    kma_size_t block_size = choose_block_size(BITMAPSIZE);
+    buffer_t* bitmap_mem = split_to_size(block_size, buf);
+    print_free_list("after split_to_size in add_new_page");
 
     set_bitmap(bitmap_mem, 255);
     return 0;
@@ -267,7 +272,8 @@ buffer_t*
 init_buffer(buffer_t* size_header, void* ptr, kpage_t* page)
 {
     buffer_t* child = (buffer_t*)ptr;
-    child->size = (size_header->size/2);
+    child->size = size_header->size;
+    //child->size = (size_header->size/2);
     child->next_size = NULL;
     child->ptr = (void*)child + sizeof(buffer_t);
     child->page = page;
@@ -275,7 +281,9 @@ init_buffer(buffer_t* size_header, void* ptr, kpage_t* page)
     if(size_header->next_buffer)
         size_header->next_buffer->prev_buffer = child;
     size_header->next_buffer = child;
+    print_free_list("after assigning");
     child->prev_buffer = size_header;
+    print_free_list("end of init_buffer");
     return child;
 }
 
@@ -297,6 +305,26 @@ kma_free(void* ptr, kma_size_t size)
     //coalesce(buf);
 }
 
+void
+print_free_list(char* msg)
+{
+    printf("%s\n", msg);
+    buffer_t* top = free_list->next_size; //skip first size of 0
+    while(top)
+    {
+        buffer_t* size_top = top->next_buffer;
+        int buf_count = 0;
+        while(size_top)
+        {
+            if(size_top->size != top->size)
+                printf("Bug in buffer of size %d\n", top->size);
+            buf_count++;
+            size_top = size_top->next_buffer;
+        }
+        printf("size %d has %d buffers\n", top->size, buf_count);
+        top = top->next_size;
+    }
+}
 
 #endif // KMA_BUD
 
