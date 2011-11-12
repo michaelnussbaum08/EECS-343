@@ -139,9 +139,12 @@ add_new_page(void)
     // init buffer to store bitmap on page
     buffer_t* buf = init_buffer(size_header, page->ptr, page);
     kma_size_t block_size = choose_block_size(BITMAPSIZE);
-    buffer_t* bitmap_mem = split_to_size(block_size, buf);
+    if(block_size == -1)
+        printf("WHAT WHY?!?!?!?!\n");
+     buffer_t* bitmap_mem = split_to_size(block_size, buf);
 
-    set_bitmap(bitmap_mem, 255);
+    //set_bitmap(bitmap_mem, 255);
+    alloc(bitmap_mem);
     return 0;
 }
 
