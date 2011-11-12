@@ -83,7 +83,7 @@ void deinit_free_list(void);
 void init_free_list(void);
 void alloc(buffer_t* buf);
 void dealloc(buffer_t* buf);
-int add_new_page(void);
+int add_new_page(int flag);
 void set_bitmap(buffer_t* node, int value);
 buffer_t* search_for_buffer(kma_size_t);
 buffer_t* init_buffer(buffer_t* size_header, void* ptr, kpage_t* page);
@@ -108,19 +108,27 @@ kma_malloc(kma_size_t size)
         buffer_t* buf = search_for_buffer(block_size);
         if(buf == NULL)
         {
-            int success = add_new_page();
+            int success;
+            if(block_size == PAGESIZE)
+                success = add_new_page(1);
+            else
+                success = add_new_page(0);
             if(success == -1)
                 return NULL;
             buf = search_for_buffer(block_size);
         }
-        alloc(buf);
+        if(block_size != PAGESIZE)
+            alloc(buf);
+        else
+            remove_buf_from_free_list(buf->prev_buffer);
+
         return buf->ptr;
     }
     return NULL;
 }
 
 int
-add_new_page(void)
+add_new_page(int flag)
 {
     kpage_t* page = get_page();
     if(page == NULL)
@@ -138,14 +146,15 @@ add_new_page(void)
 
     // init buffer to store bitmap on page
     buffer_t* buf = init_buffer(size_header, page->ptr, page);
-    kma_size_t block_size = choose_block_size(BITMAPSIZE);
-    if(block_size == -1)
-        printf("WHAT WHY?!?!?!?!\n");
-     buffer_t* bitmap_mem = split_to_size(block_size, buf);
-
-    //set_bitmap(bitmap_mem, 255);
-    alloc(bitmap_mem);
-    return 0;
+    if(!flag)
+    {
+         kma_size_t block_size = choose_block_size(BITMAPSIZE);
+         if(block_size == -1)
+             printf("WHAT WHY?!?!?!?!\n");
+         buffer_t* bitmap_mem = split_to_size(block_size, buf);
+         alloc(bitmap_mem);
+    }
+     return 0;
 }
 
 void
