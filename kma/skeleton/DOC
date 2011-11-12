@@ -1,0 +1,30 @@
+Memory utilization is calculated as the total amount of unfreed memory
+requested by the process divided by the total size of the pages in use by the
+allocator.  This measurement was taken at the end of every call to kma_malloc.
+Statistics were aggregated over all five test cases.
+
+Memory utilization statistic for kma_bud are as follows:
+Best 0.708514
+Worst 0.004272
+Average: 0.5042534
+
+Memory utilization statistic for kma_p2fl are as follows:
+Best 0.742065
+Worst 0.013021
+Average 0.5226774
+
+
+For the Buddy System memory allocator we store the size headers on a
+control page we keep throughout the life of the allocator. If the control page
+does not exist at the beginning of any call to kma_malloc we creat it, and
+then if any call to kma_free frees the last page of memory allocated to the
+kernel then we deallocat the control page. Each of the size headers points to a
+free list of buffer data structures. Every buffer data structure has a pointer
+to a location on a page of memory that is given to the kernel as a location of
+free memory. The buffers are stored on the page that they have a pointer to.
+    We store the bitmap marking free memory for a page in the first buffer of
+the page the bitmap describes.  We store the bitmap in a buffer so that page
+size can be incremented in powers of two. However becuase of this the page is
+never completely empty even if none of its buffers are in use by the kernel.
+This slightly complicates the decision of when to free a page. We attempt to
+coalesce free buddies with every call to kma_free.
