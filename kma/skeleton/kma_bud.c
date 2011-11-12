@@ -77,7 +77,13 @@ static buffer_t* free_list = NULL;
 /************Function Prototypes******************************************/
 
 //REMOVE
+void print_bm(buffer_t* node);
+void check_seen(kpage_t* page);
 void print_free_list(char*);
+
+void free_page_if_possible(kpage_t *page);
+void remove_all_from_free_list(kpage_t* page);
+void remove_anybuf_from_free_list(buffer_t* buf);
 
 void deinit_free_list(void);
 void init_free_list(void);
@@ -145,7 +151,9 @@ add_new_page(int flag)
     }
 
     // init buffer to store bitmap on page
+    memset(page->ptr, 0, PAGESIZE);
     buffer_t* buf = init_buffer(size_header, page->ptr, page);
+    
     if(!flag)
     {
          kma_size_t block_size = choose_block_size(BITMAPSIZE);
@@ -164,19 +172,42 @@ alloc(buffer_t* node)
     remove_buf_from_free_list(node->prev_buffer);
 }
 
-int count = 0;
-
 void
 set_bitmap(buffer_t* node, int value)
 {
-    printf("count %d\n", count++);
-    // WATCH THIS!!
     int bitmap_index = ((void*)node - node->page->ptr)/MINBUFFERSIZE;
     int size = node->size/MINBUFFERSIZE;
+    //print_bm(node);
+    //printf("adding %d to bitmap\n", size);
     memset((node->page->ptr + sizeof(buffer_t) + bitmap_index), value, size);
+    //print_bm(node);
 }
 
+void
+print_bm(buffer_t* node)
+{
+    char* bm = node->page->ptr + sizeof(buffer_t);
+    int i = 0;
+    for(i=0; i < BITMAPSIZE; i++)
+        printf("%d ", bm[i]);
+    printf("\n");
+}
+    
 
+int
+is_bitmap_free(buffer_t* node)
+{
+    int bitmap_index = ((void*)node - node->page->ptr)/MINBUFFERSIZE;
+    int size = node->size/MINBUFFERSIZE;
+    char *bitmap = node->page->ptr + sizeof(buffer_t);
+    int i;
+    for(i = bitmap_index; i < (bitmap_index + size); i++)
+    {
+        if(bitmap[i] != 0)
+            return 0;
+    }
+    return 1;
+}
 
 void
 deinit_free_list(void)
@@ -314,15 +345,68 @@ kma_free(void* ptr, kma_size_t size)
 {
     buffer_t* buf;
     buf = (buffer_t*)(ptr - sizeof(buffer_t));
-    //dealloc(buf);
-    //coalesce(buf);
-
-   /* if(free_list->next_buffer->size == 0)
+    
+    printf("num pages: %d\n", free_list->next_buffer->size);
+    //print_free_list("");
+    if(choose_block_size(size) == PAGESIZE)
+    {
+        free_list->next_buffer->size--;
+        free_page(buf->page);
+    }
+    else
+    {
+        dealloc(buf);
+        //coalesce(buf);
+        free_page_if_possible(buf->page);
+    }
+    
+    if(free_list->next_buffer->size == 0)
     {
         // free list is empty, all pages freed
         deinit_free_list();
     }
-    */
+   
+}
+
+int seen[200];
+int seen_index = 0;
+
+void
+check_seen(kpage_t* page)
+{
+    int i = 0;
+    for(i=0; i<seen_index; i++)
+    {
+        if(seen[i] == page->id)
+        {
+            printf("BUG! seend page %p\n", page);
+            return;
+        }
+    }
+    seen[seen_index++] = page->id;
+}
+
+    
+
+void
+free_page_if_possible(kpage_t *page)
+{
+    char *bitmap = page->ptr + sizeof(buffer_t);
+    int i;
+    for(i = 4; i < BITMAPSIZE ; i++)
+    {
+        if(bitmap[i] != 0)
+        {
+            return;
+        }
+    
+    }
+
+    //check_seen(page);
+    free_list->next_buffer->size--;
+    remove_all_from_free_list(page);  
+    free_page(page);
+    
 }
 
 /*
@@ -333,7 +417,51 @@ kma_free(void* ptr, kma_size_t size)
 void
 coalesce(buffer_t* buf)
 {
+    kma_size_t parent_size = buf->size * 2;
+    void* iterator = buf->page->ptr;
+    buffer_t* rightChild;
+    buffer_t* leftChild;
+    buffer_t* new_buf;
+    while(iterator-1 < buf->page->ptr+PAGESIZE)
+    {
+        if(iterator == (void *)buf)
+        {   //we know its left child
+            rightChild = (buffer_t*)((void*)buf+buf->size);
+            if(is_bitmap_free(rightChild))
+            {    
+                remove_anybuf_from_free_list(rightChild);
+                remove_anybuf_from_free_list(buf);
+                new_buf = init_buffer(buf->prev_buffer->next_size, (void *)buf, buf->page);
+                coalesce(new_buf);
+            }
+            return;
+        }
+        if(iterator > (void *)buf)
+        {   //we know its right child
+            leftChild = (buffer_t*)((void*)buf-buf->size);
+            if(is_bitmap_free(leftChild))
+            {
+                remove_anybuf_from_free_list(leftChild);
+                remove_anybuf_from_free_list(buf);
+                new_buf = init_buffer(buf->prev_buffer->next_size, (void *)leftChild, buf->page);
+                coalesce(new_buf);
+            }
+            return;
+        }
+        iterator += parent_size;
+    }
 
+    printf("AHHHHHHHHHHHH!\n");
+
+} 
+int counter = 0;
+void remove_anybuf_from_free_list(buffer_t* buf)
+{
+    //printf("Counter: %d\n", counter++);
+    buffer_t* prev = buf->prev_buffer;
+    prev->next_buffer = buf->next_buffer;
+    if(buf->next_buffer)
+        buf->next_buffer->prev_buffer = prev;
 }
 
 
@@ -343,19 +471,42 @@ dealloc(buffer_t* buf)
 {
     // find proper size header in free list and add buf as first node on it's
     // buffer list
-    buffer_t* size_header = free_list;
+   /* buffer_t* size_header = free_list;
     while(size_header)
     {
         if(size_header->size == buf->size)
             break;
         size_header = size_header->next_size;
     }
+    */
+    buffer_t* size_header = buf->prev_buffer;
     buf->next_buffer = size_header->next_buffer;
-    if(buf->next_buffer)
-        buf->next_buffer->prev_buffer = buf;
+    if(size_header->next_buffer)
+        size_header->next_buffer->prev_buffer = buf;
     size_header->next_buffer = buf;
     buf->prev_buffer = size_header;
     set_bitmap(buf, 0);
+}
+
+
+void
+remove_all_from_free_list(kpage_t* page)
+{
+    buffer_t* top = free_list->next_size; //->next_size->next_size; //skip to 256
+    while(top)
+    {
+        buffer_t* size_top = top->next_buffer;
+        while(size_top)
+        {
+            if(size_top->page == page)
+            {
+               remove_anybuf_from_free_list(size_top);
+               // break;
+            }   
+            size_top = size_top->next_buffer;
+        }
+        top = top->next_size;
+    }
 }
 
 
