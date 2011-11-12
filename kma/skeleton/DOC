@@ -13,6 +13,10 @@ Best 0.742065
 Worst 0.013021
 Average 0.5226774
 
+I beleive kma_bud has worse memory utilization than kma_p2fl because it uses memory to
+store empty buffers.  If the buffers are a small size there might be a large
+number of useless buffers. 
+
 
 For the Buddy System memory allocator we store the size headers on a
 control page we keep throughout the life of the allocator. If the control page
