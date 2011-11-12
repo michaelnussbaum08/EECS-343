@@ -152,9 +152,12 @@ alloc(buffer_t* node)
     remove_buf_from_free_list(node->prev_buffer);
 }
 
+int count = 0;
+
 void
 set_bitmap(buffer_t* node, int value)
 {
+    printf("count %d\n", count++);
     // WATCH THIS!!
     int bitmap_index = ((void*)node - node->page->ptr)/MINBUFFERSIZE;
     int size = node->size/MINBUFFERSIZE;
@@ -243,7 +246,7 @@ search_for_buffer(kma_size_t size)
 buffer_t*
 split_to_size(kma_size_t need_size, buffer_t* node)
 {
-    if((node->size/2 < need_size) || (node->size/2 <= MINBUFFERSIZE))
+    if(node->size ==  need_size)
     {
         // found right size
         return node;
@@ -299,8 +302,50 @@ kma_free(void* ptr, kma_size_t size)
 {
     buffer_t* buf;
     buf = (buffer_t*)(ptr - sizeof(buffer_t));
+    //dealloc(buf);
     //coalesce(buf);
+
+   /* if(free_list->next_buffer->size == 0)
+    {
+        // free list is empty, all pages freed
+        deinit_free_list();
+    }
+    */
 }
+
+/*
+ * If a buffer and it's buddy are free then take them off of the free list,
+ * combine them and add them back onto the free list as a single buffer.
+ * If we coalesce a buffer to size == PAGESIZE then free the page.
+ */
+void
+coalesce(buffer_t* buf)
+{
+
+}
+
+
+/* Put buffer back onto free list, reset it's bitmap */
+void
+dealloc(buffer_t* buf)
+{
+    // find proper size header in free list and add buf as first node on it's
+    // buffer list
+    buffer_t* size_header = free_list;
+    while(size_header)
+    {
+        if(size_header->size == buf->size)
+            break;
+        size_header = size_header->next_size;
+    }
+    buf->next_buffer = size_header->next_buffer;
+    if(buf->next_buffer)
+        buf->next_buffer->prev_buffer = buf;
+    size_header->next_buffer = buf;
+    buf->prev_buffer = size_header;
+    set_bitmap(buf, 0);
+}
+
 
 void
 print_free_list(char* msg)
