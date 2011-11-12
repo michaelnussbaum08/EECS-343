@@ -75,12 +75,6 @@ typedef struct bufferT
 static buffer_t* free_list = NULL;
 
 /************Function Prototypes******************************************/
-
-//REMOVE
-void print_bm(buffer_t* node);
-void check_seen(kpage_t* page);
-void print_free_list(char*);
-
 void free_page_if_possible(kpage_t *page);
 void remove_all_from_free_list(kpage_t* page);
 void remove_anybuf_from_free_list(buffer_t* buf);
@@ -96,7 +90,7 @@ buffer_t* init_buffer(buffer_t* size_header, void* ptr, kpage_t* page);
 void remove_buf_from_free_list(buffer_t* node);
 kma_size_t choose_block_size(kma_size_t);
 buffer_t* split_to_size(kma_size_t, buffer_t*);
-void coalesce(buffer_t*);
+buffer_t* coalesce(buffer_t*);
 
 
 /************External Declaration*****************************************/
@@ -177,22 +171,8 @@ set_bitmap(buffer_t* node, int value)
 {
     int bitmap_index = ((void*)node - node->page->ptr)/MINBUFFERSIZE;
     int size = node->size/MINBUFFERSIZE;
-    //print_bm(node);
-    //printf("adding %d to bitmap\n", size);
     memset((node->page->ptr + sizeof(buffer_t) + bitmap_index), value, size);
-    //print_bm(node);
 }
-
-void
-print_bm(buffer_t* node)
-{
-    char* bm = node->page->ptr + sizeof(buffer_t);
-    int i = 0;
-    for(i=0; i < BITMAPSIZE; i++)
-        printf("%d ", bm[i]);
-    printf("\n");
-}
-    
 
 int
 is_bitmap_free(buffer_t* node)
@@ -346,8 +326,6 @@ kma_free(void* ptr, kma_size_t size)
     buffer_t* buf;
     buf = (buffer_t*)(ptr - sizeof(buffer_t));
     
-    printf("num pages: %d\n", free_list->next_buffer->size);
-    //print_free_list("");
     if(choose_block_size(size) == PAGESIZE)
     {
         free_list->next_buffer->size--;
@@ -356,8 +334,8 @@ kma_free(void* ptr, kma_size_t size)
     else
     {
         dealloc(buf);
-        //coalesce(buf);
-        free_page_if_possible(buf->page);
+        buffer_t* new_buf = coalesce(buf);
+        free_page_if_possible(new_buf->page);
     }
     
     if(free_list->next_buffer->size == 0)
@@ -367,26 +345,6 @@ kma_free(void* ptr, kma_size_t size)
     }
    
 }
-
-int seen[200];
-int seen_index = 0;
-
-void
-check_seen(kpage_t* page)
-{
-    int i = 0;
-    for(i=0; i<seen_index; i++)
-    {
-        if(seen[i] == page->id)
-        {
-            printf("BUG! seend page %p\n", page);
-            return;
-        }
-    }
-    seen[seen_index++] = page->id;
-}
-
-    
 
 void
 free_page_if_possible(kpage_t *page)
@@ -401,12 +359,9 @@ free_page_if_possible(kpage_t *page)
         }
     
     }
-
-    //check_seen(page);
     free_list->next_buffer->size--;
     remove_all_from_free_list(page);  
     free_page(page);
-    
 }
 
 /*
@@ -414,9 +369,11 @@ free_page_if_possible(kpage_t *page)
  * combine them and add them back onto the free list as a single buffer.
  * If we coalesce a buffer to size == PAGESIZE then free the page.
  */
-void
+buffer_t*
 coalesce(buffer_t* buf)
 {
+    if(buf->size == PAGESIZE)
+        return buf;
     kma_size_t parent_size = buf->size * 2;
     void* iterator = buf->page->ptr;
     buffer_t* rightChild;
@@ -427,37 +384,35 @@ coalesce(buffer_t* buf)
         if(iterator == (void *)buf)
         {   //we know its left child
             rightChild = (buffer_t*)((void*)buf+buf->size);
-            if(is_bitmap_free(rightChild))
+            if(is_bitmap_free(rightChild) && rightChild->size == buf->size)
             {    
                 remove_anybuf_from_free_list(rightChild);
                 remove_anybuf_from_free_list(buf);
                 new_buf = init_buffer(buf->prev_buffer->next_size, (void *)buf, buf->page);
-                coalesce(new_buf);
+                buf = coalesce(new_buf);
             }
-            return;
+            return buf;
         }
         if(iterator > (void *)buf)
         {   //we know its right child
             leftChild = (buffer_t*)((void*)buf-buf->size);
-            if(is_bitmap_free(leftChild))
+            if(is_bitmap_free(leftChild) && leftChild->size == buf->size)
             {
                 remove_anybuf_from_free_list(leftChild);
                 remove_anybuf_from_free_list(buf);
                 new_buf = init_buffer(buf->prev_buffer->next_size, (void *)leftChild, buf->page);
-                coalesce(new_buf);
+                buf = coalesce(new_buf);
             }
-            return;
+            return buf;
         }
         iterator += parent_size;
     }
 
-    printf("AHHHHHHHHHHHH!\n");
+  return NULL;
 
 } 
-int counter = 0;
 void remove_anybuf_from_free_list(buffer_t* buf)
 {
-    //printf("Counter: %d\n", counter++);
     buffer_t* prev = buf->prev_buffer;
     prev->next_buffer = buf->next_buffer;
     if(buf->next_buffer)
@@ -469,16 +424,6 @@ void remove_anybuf_from_free_list(buffer_t* buf)
 void
 dealloc(buffer_t* buf)
 {
-    // find proper size header in free list and add buf as first node on it's
-    // buffer list
-   /* buffer_t* size_header = free_list;
-    while(size_header)
-    {
-        if(size_header->size == buf->size)
-            break;
-        size_header = size_header->next_size;
-    }
-    */
     buffer_t* size_header = buf->prev_buffer;
     buf->next_buffer = size_header->next_buffer;
     if(size_header->next_buffer)
@@ -492,7 +437,7 @@ dealloc(buffer_t* buf)
 void
 remove_all_from_free_list(kpage_t* page)
 {
-    buffer_t* top = free_list->next_size; //->next_size->next_size; //skip to 256
+    buffer_t* top = free_list->next_size->next_size->next_size; //skip to 256
     while(top)
     {
         buffer_t* size_top = top->next_buffer;
@@ -501,32 +446,10 @@ remove_all_from_free_list(kpage_t* page)
             if(size_top->page == page)
             {
                remove_anybuf_from_free_list(size_top);
-               // break;
+               break;
             }   
             size_top = size_top->next_buffer;
         }
-        top = top->next_size;
-    }
-}
-
-
-void
-print_free_list(char* msg)
-{
-    printf("%s\n", msg);
-    buffer_t* top = free_list->next_size; //skip first size of 0
-    while(top)
-    {
-        buffer_t* size_top = top->next_buffer;
-        int buf_count = 0;
-        while(size_top)
-        {
-            if(size_top->size != top->size)
-                printf("Bug in buffer of size %d\n", top->size);
-            buf_count++;
-            size_top = size_top->next_buffer;
-        }
-        printf("size %d has %d buffers\n", top->size, buf_count);
         top = top->next_size;
     }
 }
