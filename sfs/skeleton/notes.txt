@@ -1,0 +1,9 @@
+We need bitmap that is 2000 bits long, so it'll have to span four sectors.
+Superblock has free sector count and pointers, free inode count and occupied inode pointers
+Keep static pointer to open file table of open files objects (which have pointers to inodes
+
+To design:
+inode structs
+open file structs
+Directory structs
+File on disk structs
