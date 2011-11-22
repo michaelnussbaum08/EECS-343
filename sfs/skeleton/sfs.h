@@ -35,4 +35,26 @@ extern int sfs_fwrite(int fileID, char *buffer, int length);
 extern int sfs_lseek(int fileID, int position);
 extern int sfs_rm(char *file_name);
 
+
+typedef struct inode_t
+{
+    int size_count;
+    // inode pointers are a combination of sector num
+    // and offset into that sector
+    // These are pointers to the next inode in the free list
+    int inode_sector;
+    int inode_offset;
+    // sector numbers of data
+    int direct[3];
+    int single_indirect;
+    int double_indirect;
+} inode;
+
+typedef struct dentry_t
+{
+    char f_name[16];
+    struct inode* f_inode;
+} dentry;
+
+
 #endif /* !SFS_H */

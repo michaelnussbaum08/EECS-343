@@ -1,9 +1,20 @@
-We need bitmap that is 2000 bits long, so it'll have to span four sectors.
-Superblock has free sector count and pointers, free inode count and occupied inode pointers
-Keep static pointer to open file table of open files objects (which have pointers to inodes
+RESUME WITH POP_INODE
 
-To design:
-inode structs
-open file structs
-Directory structs
-File on disk structs
+
+
+Superblock has free inode pointer and 250 byte (2000 bit) bitmap
+
+
+inodes are each 32 bytes and go on for 52 blocks (room for 912 entries) starting
+from root
+
+dentry struct -- char[16] (17?) and inode*
+We can store 25 dentries in a block, so expand to multiple blocks if
+necessary, NULL terminate after last entry
+
+Static open file linked list
+Each entry has:
+    *inode
+    id
+    *next_entry
+
