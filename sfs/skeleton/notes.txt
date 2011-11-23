@@ -1,6 +1,4 @@
-RESUME WITH POP_INODE
-
-
+Resume with file path translation, maybe?
 
 Superblock has free inode pointer and 250 byte (2000 bit) bitmap
 
