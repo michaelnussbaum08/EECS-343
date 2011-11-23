@@ -26,6 +26,10 @@
 
 
 #define INODES_IN_SECTOR 16
+#define BITMAP_SIZE 250
+
+static inode* inode_table[900];
+static int cwd_index;
 
 
 int
@@ -37,7 +41,7 @@ safe_read(int sector, void* buf);
 int
 write_to_offset(int sector, int offset, void* buf, int buf_size);
 inode*
-pop_free_inodes(void)
+pop_free_inodes(void);
 
 /*
  * Calls SD_write until SD_write doesn't fail
@@ -108,27 +112,142 @@ flip_bm(int sector)
     return 0;
 }
 
-inode*
-pop_free_inodes(void)
+void
+push_free_inode(inode* free_inode)
 {
-    void* inode_list_sector = malloc(SD_SECTORSIZE);
-    safe_read(0, inode_list_sector);
-    int free_inode_sector_addr = (int)inode_list_sector;
-    int free_inode_offset_addr = (int)(inode_list_sector + sizeof(int));
-    // Advance this and write it back, check if last inode while advancing
-    // After advancing inode to place indicated by free_inode set free_inode's
-    // inode_sector and inode_offset to -1
+    void* free_list_sector = malloc(SD_SECTORSIZE);
+    safe_read(0, free_list_sector);
+    int free_inode_sector_addr = *((int*)free_list_sector);
+    int free_inode_offset_addr = *((int*)(free_list_sector + sizeof(int)));
+    free(free_list_sector);
+
+    // advance free inode list
+    int* free_list_buf = (int*)malloc(sizeof(int)*2);
+    free_list_buf[0] = free_inode->inode_sector;
+    free_list_buf[1] = free_inode->inode_offset;
+    write_to_offset(0, 0, (void*)free_list_buf, (2*sizeof(int)));
+
+    free_inode->inode_sector = free_inode_sector_addr;
+    free_inode->inode_offset = free_inode_offset_addr;
+    write_to_offset(free_list_buf[0], free_list_buf[1], (void*)free_inode, \
+            sizeof(inode));
+    free(free_inode);
+    free(free_list_buf);
+}
+
+inode*
+pop_free_inode(void)
+{
+    void* free_list_sector = malloc(SD_SECTORSIZE);
+    safe_read(0, free_list_sector);
+    int free_inode_sector_addr = *((int*)free_list_sector);
+    int free_inode_offset_addr = *((int*)(free_list_sector + sizeof(int)));
+    free(free_list_sector);
+
+    if(free_inode_offset_addr == -1)
+        return NULL; // out of inodes
 
     void* free_inode_sector = malloc(SD_SECTORSIZE);
     safe_read(free_inode_sector_addr, free_inode_sector);
-    inode free_inode = malloc(sizeof(inode));
-    memcpy();
-    // copy offset deep from free_inode_sector into free_inode
+    inode* free_inode = malloc(sizeof(inode));
+    memcpy(free_inode, free_inode_offset_addr+free_inode_sector, \
+            sizeof(inode)); // now the next free inode has been read in from
+    // disk and put into free_inode
+    free(free_inode_sector);
 
+    // now set the inode's next inode pointers to point to its own address on
+    // disk
+    free_inode->inode_sector = free_inode_sector_addr;
+    free_inode->inode_offset = free_inode_offset_addr;
+
+    // advance free inode list
+    int* free_list_buf = (int*)malloc(sizeof(int)*2);
+    free_list_buf[0] = free_inode->inode_sector;
+    free_list_buf[1] = free_inode->inode_offset;
+    write_to_offset(0, 0, (void*)free_list_buf, (2*sizeof(int)));
+    free(free_list_buf);
     // NEED TO FREE INODES AFTER WE PUT IN USED INODE TABLE
-
-    // return address of free_inode
+    return free_inode;
 }
+
+/*
+ * writes address of free sector into sector_addr
+ * returns 0 on success, -1 otherwise
+ *
+ */
+int
+get_block(int* sector_addr)
+{
+    void* bm_sector = malloc(SD_SECTORSIZE);
+    int success = safe_read(0, bm_sector);
+    if(success)
+    {
+        free(bm_sector);
+        return -1;
+    }
+    char *bitmap = (char *)(bm_sector + 8);
+    int i;
+    char byte;
+    for(i = 0; i < BITMAP_SIZE; i++)
+    {
+        if(bitmap[i] != 255)
+        {
+            byte = bitmap[i];
+            break;
+        }
+        if(i == (BITMAP_SIZE - 1))
+        {
+            free(bm_sector);
+            return -1;
+        }
+    }
+    int j;
+    for(j = 0; j < 8; j++)
+    {
+        if(byte & 1)
+            byte >>= 1;
+        else
+            break;
+    }
+
+    *sector_addr =  i*8+j;
+    flip_bm(*sector_addr);
+    free(bm_sector);
+    return 0;
+}
+
+int
+init_dir(int is_root)
+{
+    // pop free inode off list
+    inode* node = pop_free_inode();
+    if(is_root == 1)
+    {
+        cwd_index = 0;
+        inode_table[cwd_index] = node;
+    }
+    // allocate it one direct block
+    int* block_addr = malloc(sizeof(int));
+    get_block(block_addr);
+    node->direct[0] = *block_addr;
+    node->size_count = 1;
+    // put two dentries in the direct block
+    // first dentry has . (self pointer)
+    // second dentry has .. (parent pointer, which is self for root)
+    dentry* dentries = (dentry*)malloc(2*sizeof(dentry));
+    strcpy(dentries[0].f_name, ".");
+    dentries[0].inode_sector = node->inode_sector;
+    dentries[0].inode_offset = node->inode_offset;
+    strcpy(dentries[1].f_name, "..");
+    dentries[1].inode_sector = inode_table[cwd_index]->inode_sector;
+    dentries[1].inode_offset = inode_table[cwd_index]->inode_offset;
+    int success = write_to_offset(node->direct[0], 0, dentries, (2*sizeof(dentry)));
+    free(dentries);
+    return success;
+}
+
+
+
 
 /*
  * sfs_mkfs: use to build your filesystem
@@ -192,12 +311,9 @@ int sfs_mkfs() {
             printf("WRITE ERROR\n");
         free(inode_buf);
     }
-    // pop free inode off list
-    // allocate it two direct blocks
-    // put two dentries in the direct blocks
-    // first dentry has . (self pointer)
-    // second dentry has .. (parent pointer, which is self for root)
-    return 0;
+    // make root dir
+    int is_root = 1;
+    return init_dir(is_root);
 } /* !sfs_mkfs */
 
 /*
@@ -209,6 +325,9 @@ int sfs_mkfs() {
  *
  */
 int sfs_mkdir(char *name) {
+    /* call init dir and update the parent's dentry table to have a pointer to
+     * the new directory
+     */
     // TODO: Implement
     return -1;
 } /* !sfs_mkdir */
@@ -222,6 +341,10 @@ int sfs_mkdir(char *name) {
  *
  */
 int sfs_fcd(char* name) {
+    /* Either change cwd_index pointer into open file table
+     * or (if we use this representation) set the 0th entry to the file table
+     * to point to the dir indicated by name
+     */
     // TODO: Implement
     return -1;
 } /* !sfs_fcd */
@@ -236,6 +359,12 @@ int sfs_fcd(char* name) {
  *
  */
 int sfs_ls(FILE* f) {
+    /* We don't what the purpose of f is.
+     * Right now we're going to just list all the files and folders in the cwd.
+     *
+     * To do this we look at every block pointer that is used and print the name of
+     * every dentry.
+     */
     // TODO: Implement
     return -1;
 } /* !sfs_ls */
@@ -252,7 +381,11 @@ int sfs_ls(FILE* f) {
  *
  */
 int sfs_fopen(char* name) {
-    // TODO: Implement
+    /*
+     * Resolve path name -- look in cwd for a name matching first part of path
+     * if that is the last part of the path then create a file struct for
+     * inode, enter it into open file table and return index of file in table.
+     */
     return -1;
 } /* !sfs_fopen */
 
@@ -281,7 +414,7 @@ int sfs_fclose(int fileID) {
  *
  */
 int sfs_fread(int fileID, char *buffer, int length) {
-    // TODO: Implement
+    inode* node = inode_table[fileID];
     return -1;
 }
 

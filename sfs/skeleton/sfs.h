@@ -53,8 +53,17 @@ typedef struct inode_t
 typedef struct dentry_t
 {
     char f_name[16];
-    struct inode* f_inode;
+    int inode_sector;
+    int inode_offset;
 } dentry;
+
+typedef struct file_t
+{
+    inode* node;
+    void* data;
+    int rw_ptr;
+} file;
+
 
 
 #endif /* !SFS_H */
