@@ -27,12 +27,17 @@
 
 #define INODES_IN_SECTOR 16
 #define BITMAP_SIZE 250
+#define MAX_FILES 900
 
-static inode* inode_table[900];
+static open_file* file_table[MAX_FILES];
 static int cwd_index;
 const int DENTRIES_PER_BLOCK = SD_SECTORSIZE / sizeof(dentry);
 
 
+int
+next_index(void);
+void
+free_file(open_file* f);
 int
 flip_bm(int sector);
 int
@@ -46,13 +51,15 @@ read_inode(int index, void* buf);
 int
 write_to_offset(int sector, int offset, void* buf, int buf_size);
 inode*
-pop_free_inodes(void);
+pop_free_inode(void);
 int
 resolve_path(char* path, void* inode_buf);
 int
 inode_index(char* name, inode* parent);
 int
 sector_for_block(int block_index, inode* node);
+int
+add_dentry(inode* parent, inode* child, char* name);
 
 
 /*
@@ -233,6 +240,10 @@ get_block(int* sector_addr)
     *sector_addr =  i*8+j;
     flip_bm(*sector_addr);
     free(bm_sector);
+    int* zero_buf = malloc(SD_SECTORSIZE);
+    memset(zero_buf, 0, SD_SECTORSIZE);
+    safe_write(*sector_addr, zero_buf);
+    free(zero_buf);
     return 0;
 }
 
@@ -244,7 +255,10 @@ init_dir(int is_root)
     if(is_root == 1)
     {
         cwd_index = 0;
-        inode_table[cwd_index] = node;
+        open_file* f = malloc(sizeof(open_file));
+        f->node = node;
+        f->rw_ptr = 0;
+        file_table[cwd_index] = f;
     }
     // allocate it one direct block
     int* block_addr = malloc(sizeof(int));
@@ -259,7 +273,7 @@ init_dir(int is_root)
     strcpy(dentries[0].f_name, ".");
     dentries[0].inode_num = node->next_inode_num;
     strcpy(dentries[1].f_name, "..");
-    dentries[1].inode_num = inode_table[cwd_index]->next_inode_num;
+    dentries[1].inode_num = file_table[cwd_index]->node->next_inode_num;
     // set size_count negative to indicate directory inode
     node->size_count = -2;
     int success = write_to_offset(node->direct[0], 0, dentries, (2*sizeof(dentry)));
@@ -268,6 +282,12 @@ init_dir(int is_root)
 }
 
 
+void
+free_file(open_file* f)
+{
+    push_free_inode(f->node);
+    free(f);
+}
 
 
 /*
@@ -391,19 +411,174 @@ int sfs_ls(FILE* f) {
  *
  */
 int sfs_fopen(char* name) {
-    /*
-     * Resolve path name -- look in cwd for a name matching first part of path
-     * if that is the last part of the path then create a file struct for
-     * inode, enter it into open file table and return index of file in table.
-     */
-    return -1;
+    int success;
+    inode* node = malloc(sizeof(inode));
+    success = resolve_path(name, node);
+    if(success == -1)
+    {
+        free(node);
+        return success;
+    } else if(success == -2)
+    {
+        // file doesn't exist yet -- make it
+        free(node);
+        // get path to parent dir to update it's dentries with new file
+        int name_len = strlen(name);
+        char* copy_path = memcpy(malloc(name_len), name, name_len); // don't mangle input
+        char* cur_seg = strtok(copy_path, "/");
+        char* parent_path = malloc(name_len);
+        while(cur_seg != NULL)
+        {
+            strcat(parent_path, cur_seg);
+            cur_seg = strtok(NULL, "/");
+        }
+        free(copy_path);
+        inode* parent_node = malloc(sizeof(inode));
+        int success = resolve_path(parent_path, parent_node);
+        if (success == -1)
+        {
+            free(parent_path);
+            return -1;
+        }
+        else if(success == -2)
+            printf("NESTED NON-EXISTING PATHS!\n");
+
+        node = pop_free_inode();
+        add_dentry(parent_node, node, cur_seg);
+
+    }
+    open_file* f = malloc(sizeof(open_file));
+    f->rw_ptr = 0;
+    f->node = node;
+    int index = next_index();
+    file_table[index] = f;
+    return index;
 } /* !sfs_fopen */
+
+int
+add_dentry(inode* parent, inode* child, char* name)
+{
+    int dentries_in_use = parent->size_count * -1;
+    int block_addr;
+    int success;
+    // Make sure there's room in the current block
+    if(dentries_in_use % DENTRIES_PER_BLOCK == 0)
+    {
+        success = get_block(&block_addr);
+        if(success == -1)
+            return -1;
+        int new_block_index = dentries_in_use / DENTRIES_PER_BLOCK;
+        if(new_block_index < DIRECT_BLOCKS)
+        {
+            parent->direct[new_block_index] = block_addr;
+        } else if(new_block_index < (DIRECT_BLOCKS + DENTRIES_PER_BLOCK))
+        {
+            int single_indirect_block;
+            if(new_block_index == DIRECT_BLOCKS)
+            {
+                success = get_block(&single_indirect_block);
+                if(success == -1)
+                    return -1;
+                parent->single_indirect = single_indirect_block;
+            }
+            write_to_offset(parent->single_indirect, \
+                    ((new_block_index - DIRECT_BLOCKS) * sizeof(int)), \
+                    &block_addr, sizeof(int));
+        } else
+        {
+            // in addition to checking whether the single indirect is a new
+            // page we need to check whether the double indirect is a new page
+            int single_indirect_block;
+            int double_indirect_block;
+            if(new_block_index == DIRECT_BLOCKS + DENTRIES_PER_BLOCK)
+            {
+                success = get_block(&double_indirect_block);
+                if(success == -1)
+                    return -1;
+                parent->double_indirect = double_indirect_block;
+            }
+
+
+            int double_ind_offset = (new_block_index - \
+                    (DIRECT_BLOCKS + DENTRIES_PER_BLOCK)) / DENTRIES_PER_BLOCK;
+            int single_ind_offset = (new_block_index - \
+                    (DIRECT_BLOCKS + DENTRIES_PER_BLOCK)) % DENTRIES_PER_BLOCK;
+
+            if(((new_block_index - DIRECT_BLOCKS) % DENTRIES_PER_BLOCK) == 0)
+            {
+               success = get_block(&single_indirect_block);
+               if(success == -1)
+                   return -1;
+               write_to_offset(parent->double_indirect, double_ind_offset * sizeof(int), \
+                       &single_indirect_block, sizeof(int));
+            } else
+            {//find single_indirect_block
+                void *buf = malloc(SD_SECTORSIZE);
+                success = safe_read(parent->double_indirect, buf);
+                if(success == -1)
+                {
+                    free(buf);
+                    return -1;
+                }
+                int* double_ind_sector = (int *)buf;
+                single_indirect_block = double_ind_sector[double_ind_offset];
+            }
+            write_to_offset(single_indirect_block, \
+                    single_ind_offset*sizeof(int), &block_addr, sizeof(int));
+        }
+
+        write_inode(parent->next_inode_num, (void*)parent);
+        // add a new indirect block, zero it out and add a dentry to it
+    }
+    else
+    {
+        // If there's room then get cur block from existing func
+        // and loop through it until you find room to add a dentry
+        int block_index = dentries_in_use / DENTRIES_PER_BLOCK;
+        block_addr = sector_for_block(block_index, parent);
+    }
+    void *buf = malloc(SD_SECTORSIZE);
+    success = safe_read(block_addr, buf);
+    if(success == -1)
+    {
+        free(buf);
+        return -1;
+    }
+    dentry* dentry_list = (dentry *)buf;
+    int i = 0;
+    while(dentry_list + i != NULL)
+    {
+        i++;
+    }
+    dentry_list[i].inode_num = child->next_inode_num;
+    strcpy(dentry_list[i].f_name, name);
+    safe_write(block_addr, buf);
+    return 0;
+}
+
+
+/*
+ * Returns next available index into the file_table
+ */
+int
+next_index(void)
+{
+    int i = 0;
+    for(i=0; ((i<MAX_FILES) && (file_table[i] != NULL)); i++)
+        continue;
+    if(i+1 == MAX_FILES)
+        printf("Out of files!");
+    return i;
+}
+
+
 
 
 //TODO: CHECK BEHAVIOR EMPTY PATH
 /*
  * Reads the inode at path into inode_buf
  *
+ * Returns o on success, -1 on failure or -2 if file doesn't exist
  */
 int
 resolve_path(char* path, void* inode_buf)
@@ -420,7 +595,7 @@ resolve_path(char* path, void* inode_buf)
         }
     }else
     {
-        memcpy(current, inode_table[cwd_index], sizeof(inode));
+        memcpy(current, file_table[cwd_index]->node, sizeof(inode));
     }
 
     int path_len = strlen(path);
@@ -433,7 +608,7 @@ resolve_path(char* path, void* inode_buf)
         if(next_inode_addr == -1)
         {
             free(current);
-            return -1;
+            return -2;
         }
         success = read_inode(next_inode_addr, current);
         if(success == -1)
@@ -501,9 +676,9 @@ int
 sector_for_block(int block_index, inode* node)
 {
     int found;
-    if(block_index < 4)
+    if(block_index < DIRECT_BLOCKS)
         return node->direct[block_index];
-    else if(block_index < 132)
+    else if(block_index < (DIRECT_BLOCKS + DENTRIES_PER_BLOCK))
     {
         void* buf = malloc(SD_SECTORSIZE);
         int success = safe_read(node->single_indirect, buf);
@@ -557,7 +732,9 @@ sector_for_block(int block_index, inode* node)
  *
  */
 int sfs_fclose(int fileID) {
-    // TODO: Implement
+    open_file* f = file_table[fileID];
+    free_file(f);
+    file_table[fileID] = NULL;
     return -1;
 } /* !sfs_fclose */
 

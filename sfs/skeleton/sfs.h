@@ -60,9 +60,8 @@ typedef struct dentry_t
 typedef struct file_t
 {
     inode* node;
-    void* data;
     int rw_ptr;
-} file;
+} open_file;
 
 
 
