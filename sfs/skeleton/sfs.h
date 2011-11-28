@@ -24,6 +24,8 @@
 
 #include "stdio.h"
 
+#define DIRECT_BLOCKS 4
+
 extern int sfs_mkfs();
 extern int sfs_mkdir(char *name);
 extern int sfs_fcd(char* name);
@@ -38,14 +40,13 @@ extern int sfs_rm(char *file_name);
 
 typedef struct inode_t
 {
-    int size_count;
+    int size_count; // negative for directories
     // inode pointers are a combination of sector num
     // and offset into that sector
     // These are pointers to the next inode in the free list
-    int inode_sector;
-    int inode_offset;
+    int next_inode_num;
     // sector numbers of data
-    int direct[3];
+    int direct[DIRECT_BLOCKS];
     int single_indirect;
     int double_indirect;
 } inode;
@@ -53,8 +54,7 @@ typedef struct inode_t
 typedef struct dentry_t
 {
     char f_name[16];
-    int inode_sector;
-    int inode_offset;
+    int inode_num;
 } dentry;
 
 typedef struct file_t

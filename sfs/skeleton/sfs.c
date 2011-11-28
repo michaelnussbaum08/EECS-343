@@ -30,6 +30,7 @@
 
 static inode* inode_table[900];
 static int cwd_index;
+const int DENTRIES_PER_BLOCK = SD_SECTORSIZE / sizeof(dentry);
 
 
 int
@@ -39,9 +40,20 @@ safe_write(int sector, void* buf);
 int
 safe_read(int sector, void* buf);
 int
+write_inode(int index, void* buf);
+int
+read_inode(int index, void* buf);
+int
 write_to_offset(int sector, int offset, void* buf, int buf_size);
 inode*
 pop_free_inodes(void);
+int
+resolve_path(char* path, void* inode_buf);
+int
+inode_index(char* name, inode* parent);
+int
+sector_for_block(int block_index, inode* node);
+
 
 /*
  * Calls SD_write until SD_write doesn't fail
@@ -86,6 +98,29 @@ write_to_offset(int sector, int offset, void* buf, int buf_size)
     return success;
 }
 
+int
+write_inode(int index, void* buf)
+{
+    int byte_num = index * sizeof(inode);
+    int offset = byte_num % SD_SECTORSIZE;
+    int sector = byte_num / SD_SECTORSIZE;
+    return write_to_offset(sector, offset, buf, sizeof(inode));
+}
+
+int
+read_inode(int index, void* buf)
+{
+    int byte_num = index * sizeof(inode);
+    int offset = byte_num % SD_SECTORSIZE;
+    int sector = byte_num / SD_SECTORSIZE;
+
+    void* inode_sector = malloc(SD_SECTORSIZE);
+    int succcess = safe_read(sector, inode_sector);
+    memcpy(buf, (inode_sector+offset), sizeof(inode));
+    free(inode_sector);
+    return succcess;
+}
+
 /*
  * returns 0 unless error
  * NOTE: this assumes everything works perfectly
@@ -112,61 +147,46 @@ flip_bm(int sector)
     return 0;
 }
 
+
 void
 push_free_inode(inode* free_inode)
 {
-    void* free_list_sector = malloc(SD_SECTORSIZE);
-    safe_read(0, free_list_sector);
-    int free_inode_sector_addr = *((int*)free_list_sector);
-    int free_inode_offset_addr = *((int*)(free_list_sector + sizeof(int)));
-    free(free_list_sector);
+    void* superblock = malloc(SD_SECTORSIZE); //gets superblock
+    safe_read(0, superblock);
+    int free_inode_num = *((int*)superblock);
+    free(superblock);
 
     // advance free inode list
-    int* free_list_buf = (int*)malloc(sizeof(int)*2);
-    free_list_buf[0] = free_inode->inode_sector;
-    free_list_buf[1] = free_inode->inode_offset;
-    write_to_offset(0, 0, (void*)free_list_buf, (2*sizeof(int)));
+    int free_list_buf = free_inode->next_inode_num;
+    write_to_offset(0, 0, (void*)&free_list_buf, sizeof(int));
 
-    free_inode->inode_sector = free_inode_sector_addr;
-    free_inode->inode_offset = free_inode_offset_addr;
-    write_to_offset(free_list_buf[0], free_list_buf[1], (void*)free_inode, \
-            sizeof(inode));
+    free_inode->next_inode_num = free_inode_num;
+
+    write_inode(free_inode_num, (void*)free_inode);
     free(free_inode);
-    free(free_list_buf);
 }
 
 inode*
 pop_free_inode(void)
 {
-    void* free_list_sector = malloc(SD_SECTORSIZE);
-    safe_read(0, free_list_sector);
-    int free_inode_sector_addr = *((int*)free_list_sector);
-    int free_inode_offset_addr = *((int*)(free_list_sector + sizeof(int)));
-    free(free_list_sector);
+    void* superblock = malloc(SD_SECTORSIZE);
+    safe_read(0, superblock);
+    int free_inode_num = *((int*)superblock);
+    free(superblock);
 
-    if(free_inode_offset_addr == -1)
+    if(free_inode_num == -1)
         return NULL; // out of inodes
 
-    void* free_inode_sector = malloc(SD_SECTORSIZE);
-    safe_read(free_inode_sector_addr, free_inode_sector);
     inode* free_inode = malloc(sizeof(inode));
-    memcpy(free_inode, free_inode_offset_addr+free_inode_sector, \
-            sizeof(inode)); // now the next free inode has been read in from
-    // disk and put into free_inode
-    free(free_inode_sector);
+    read_inode(free_inode_num, free_inode);
 
     // now set the inode's next inode pointers to point to its own address on
     // disk
-    free_inode->inode_sector = free_inode_sector_addr;
-    free_inode->inode_offset = free_inode_offset_addr;
+    free_inode->next_inode_num = free_inode_num;
 
     // advance free inode list
-    int* free_list_buf = (int*)malloc(sizeof(int)*2);
-    free_list_buf[0] = free_inode->inode_sector;
-    free_list_buf[1] = free_inode->inode_offset;
-    write_to_offset(0, 0, (void*)free_list_buf, (2*sizeof(int)));
-    free(free_list_buf);
-    // NEED TO FREE INODES AFTER WE PUT IN USED INODE TABLE
+    write_to_offset(0, 0, (void*)&free_inode->next_inode_num, sizeof(int));
+    // NEED TO FREE INODES AFTER WE PUT IN USED INODE TABLE -- WE DO IT IN PUSH
     return free_inode;
 }
 
@@ -234,13 +254,14 @@ init_dir(int is_root)
     // put two dentries in the direct block
     // first dentry has . (self pointer)
     // second dentry has .. (parent pointer, which is self for root)
+    // inode->next_inode_num refers to self for in use inodes
     dentry* dentries = (dentry*)malloc(2*sizeof(dentry));
     strcpy(dentries[0].f_name, ".");
-    dentries[0].inode_sector = node->inode_sector;
-    dentries[0].inode_offset = node->inode_offset;
+    dentries[0].inode_num = node->next_inode_num;
     strcpy(dentries[1].f_name, "..");
-    dentries[1].inode_sector = inode_table[cwd_index]->inode_sector;
-    dentries[1].inode_offset = inode_table[cwd_index]->inode_offset;
+    dentries[1].inode_num = inode_table[cwd_index]->next_inode_num;
+    // set size_count negative to indicate directory inode
+    node->size_count = -2;
     int success = write_to_offset(node->direct[0], 0, dentries, (2*sizeof(dentry)));
     free(dentries);
     return success;
@@ -263,9 +284,8 @@ int sfs_mkfs() {
     // Superblock
     int* buf = (int*)malloc(SD_SECTORSIZE);
     memset((void*)buf, 0, SD_SECTORSIZE);
-    // set the two integers that represent a pointer to the free list
+    // inode free list points to the second inode in our inode index
     buf[0] = 1; // sector 1
-    buf[1] = sizeof(inode); // offset is sizeof(inode) to get past the root inode
     safe_write(0, (void*)buf);
     free(buf);
     // mark pool of inodes (57 blocks) and super block as not free in bitmap
@@ -288,22 +308,12 @@ int sfs_mkfs() {
         {
             node = (inode*)(inode_buf + (j*sizeof(inode)));
             node->size_count = 0;
-            if((j+1) < INODES_IN_SECTOR)
+            if (((i+1) > 57) && ((j+1) > INODES_IN_SECTOR))
             {
-                node->inode_sector = i;
-                node->inode_offset = (j+1)*sizeof(inode);
+                node->next_inode_num = -1;
             } else
             {
-                if((i+1) < 57)
-                {
-                    node->inode_sector = (i+1);
-                    node->inode_offset = 0;
-                }
-                else
-                {
-                    node->inode_sector = -1;
-                    node->inode_offset = -1;
-                }
+                node->next_inode_num = (((i - 1) * INODES_IN_SECTOR) + (j + 1));
             }
         }
         int success = safe_write(i, inode_buf);
@@ -389,6 +399,154 @@ int sfs_fopen(char* name) {
     return -1;
 } /* !sfs_fopen */
 
+
+//TODO: CHECK BEHAVIOR EMPTY PATH
+/*
+ * Reads the inode at path into inode_buf
+ *
+ */
+int
+resolve_path(char* path, void* inode_buf)
+{
+    int success;
+    inode* current = (inode*)malloc(sizeof(inode));
+    if(path[0] == '/')
+    {
+        success = read_inode(0, current);
+        if(success == -1)
+        {
+            free(current);
+            return -1;
+        }
+    }else
+    {
+        memcpy(current, inode_table[cwd_index], sizeof(inode));
+    }
+
+    int path_len = strlen(path);
+    char* copy_path = memcpy(malloc(path_len), path, path_len); // don't mangle input
+    char* cur_seg = strtok(copy_path, "/");
+    int next_inode_addr;
+    while(cur_seg != NULL)
+    {
+        next_inode_addr = inode_index(cur_seg, current);
+        if(next_inode_addr == -1)
+        {
+            free(current);
+            return -1;
+        }
+        success = read_inode(next_inode_addr, current);
+        if(success == -1)
+        {
+            free(current);
+            return -1;
+        }
+        cur_seg = strtok(NULL, "/");
+    }
+    memcpy(inode_buf, current, sizeof(inode));
+    free(current);
+    return 0;
+}
+
+/*
+ * Returns address of name if it's a dentry of parent
+ */
+int
+inode_index(char* name, inode* parent)
+{
+    int num_dentries = -1 * parent->size_count;
+    int loop_limit;
+    int block_index = -1;
+    // check dentries in direct inode blocks
+    while(num_dentries > 0)
+    {
+        block_index += 1;
+        if(num_dentries > DENTRIES_PER_BLOCK)
+            loop_limit = DENTRIES_PER_BLOCK;
+        else
+            loop_limit = num_dentries;
+        num_dentries -= loop_limit;
+
+        int sector_num = sector_for_block(block_index, parent);
+        void* sector_buf = malloc(SD_SECTORSIZE);
+        int success = safe_read(sector_num, sector_buf);
+        if(success == -1)
+        {
+            free(sector_buf);
+            return -1;
+        }
+        dentry* dentries = (dentry*)sector_buf;
+        int i = 0;
+        for(i=0; i < loop_limit; i++)
+        {
+            if(strcmp(name, dentries[i].f_name) == 0)
+            {
+                int found = dentries[i].inode_num;
+                free(sector_buf);
+                return found;
+            }
+        }
+    }
+    return -1;
+}
+
+
+/*
+ * block_index is which block of dentries we are looking at, ignoring the
+ * indirection
+ *
+ * returns the actual address of the block_index
+ */
+int
+sector_for_block(int block_index, inode* node)
+{
+    int found;
+    if(block_index < 4)
+        return node->direct[block_index];
+    else if(block_index < 132)
+    {
+        void* buf = malloc(SD_SECTORSIZE);
+        int success = safe_read(node->single_indirect, buf);
+        if(success == -1)
+        {
+            free(buf);
+            return -1;
+        }
+        int* indirect_addresses = (int*)buf;
+        found = indirect_addresses[block_index - 4];
+        free(indirect_addresses);
+        return found;
+    }
+    else
+    {
+        void* buf = malloc(SD_SECTORSIZE);
+        int success = safe_read(node->double_indirect, buf);
+        if(success == -1)
+        {
+            free(buf);
+            return -1;
+        }
+        int* double_indirect_blocks = (int*)buf;
+        int translated_index = block_index - 132;
+        int pointers_per_block = SD_SECTORSIZE / sizeof(int);
+        int first_index =  translated_index / pointers_per_block;
+        int second_block_table = double_indirect_blocks[first_index];
+        success = safe_read(second_block_table, buf);
+        if(success == -1)
+        {
+            free(buf);
+            return -1;
+        }
+        int* double_indirect_addresses = (int*)buf;
+        int second_index = translated_index % pointers_per_block;
+        found = double_indirect_addresses[second_index];
+        free(buf);
+        return found;
+    }
+    return -1;
+}
+
+
 /*
  * sfs_fclose: close closes a file descriptor, so that it no longer
  *   refers to any file and may be reused.
@@ -414,7 +572,6 @@ int sfs_fclose(int fileID) {
  *
  */
 int sfs_fread(int fileID, char *buffer, int length) {
-    inode* node = inode_table[fileID];
     return -1;
 }
 
