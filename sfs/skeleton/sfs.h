@@ -25,6 +25,7 @@
 #include "stdio.h"
 
 #define DIRECT_BLOCKS 4
+#define INDIRECT_BLOCK_SIZE 128
 
 extern int sfs_mkfs();
 extern int sfs_mkdir(char *name);
