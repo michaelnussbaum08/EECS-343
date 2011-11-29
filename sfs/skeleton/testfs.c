@@ -75,6 +75,7 @@ void initBuffer(char *buf, int fsize);
 int checkBuffers(char *buf, char *cpy, int fsize, int offset);
 int testFile(char* name, int fsize);
 
+
 /*
  * usage: report usage to given stream and exit
  *
@@ -1153,10 +1154,10 @@ int testFile(char* name, int fsize) {
 
     // Something went wrong...
     Fail:
-    
+
     SAFE_FREE(buf);
     SAFE_FREE(cpy);
-    
+
     return -1;
 }
 

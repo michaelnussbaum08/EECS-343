@@ -34,6 +34,9 @@ static int cwd_index;
 const int DENTRIES_PER_BLOCK = SD_SECTORSIZE / sizeof(dentry);
 
 
+int dirrific(inode* parent_node, char* name);
+int
+write_ls(FILE* f, inode* parent);
 int
 next_index(void);
 void
@@ -110,7 +113,7 @@ write_inode(int index, void* buf)
 {
     int byte_num = index * sizeof(inode);
     int offset = byte_num % SD_SECTORSIZE;
-    int sector = byte_num / SD_SECTORSIZE;
+    int sector = (byte_num / SD_SECTORSIZE) + 1;
     return write_to_offset(sector, offset, buf, sizeof(inode));
 }
 
@@ -119,7 +122,7 @@ read_inode(int index, void* buf)
 {
     int byte_num = index * sizeof(inode);
     int offset = byte_num % SD_SECTORSIZE;
-    int sector = byte_num / SD_SECTORSIZE;
+    int sector = (byte_num / SD_SECTORSIZE) + 1;
 
     void* inode_sector = malloc(SD_SECTORSIZE);
     int succcess = safe_read(sector, inode_sector);
@@ -187,13 +190,12 @@ pop_free_inode(void)
     inode* free_inode = malloc(sizeof(inode));
     read_inode(free_inode_num, free_inode);
 
-    // now set the inode's next inode pointers to point to its own address on
-    // disk
-    free_inode->next_inode_num = free_inode_num;
-
     // advance free inode list
     write_to_offset(0, 0, (void*)&free_inode->next_inode_num, sizeof(int));
-    // NEED TO FREE INODES AFTER WE PUT IN USED INODE TABLE -- WE DO IT IN PUSH
+
+    // now set the inode's next inode pointers to point to its own address on
+    // disk
+    free_inode->next_inode_num = free_inode_num; // NEED TO FREE INODES AFTER WE PUT IN USED INODE TABLE -- WE DO IT IN PUSH
     return free_inode;
 }
 
@@ -261,10 +263,9 @@ init_dir(int is_root)
         file_table[cwd_index] = f;
     }
     // allocate it one direct block
-    int* block_addr = malloc(sizeof(int));
-    get_block(block_addr);
-    node->direct[0] = *block_addr;
-    node->size_count = 1;
+    int block_addr;
+    get_block(&block_addr);
+    node->direct[0] = block_addr;
     // put two dentries in the direct block
     // first dentry has . (self pointer)
     // second dentry has .. (parent pointer, which is self for root)
@@ -276,9 +277,19 @@ init_dir(int is_root)
     dentries[1].inode_num = file_table[cwd_index]->node->next_inode_num;
     // set size_count negative to indicate directory inode
     node->size_count = -2;
+    write_inode(node->next_inode_num, (void*)node);
     int success = write_to_offset(node->direct[0], 0, dentries, (2*sizeof(dentry)));
+    if(success == -1)
+    {
+        free(node);
+        free(dentries);
+        return success;
+    }
+    int node_index = node->next_inode_num;
+    if(is_root != 1)
+        free(node);
     free(dentries);
-    return success;
+    return node_index;
 }
 
 
@@ -305,7 +316,7 @@ int sfs_mkfs() {
     int* buf = (int*)malloc(SD_SECTORSIZE);
     memset((void*)buf, 0, SD_SECTORSIZE);
     // inode free list points to the second inode in our inode index
-    buf[0] = 1; // sector 1
+    buf[0] = 0; // sector 1
     safe_write(0, (void*)buf);
     free(buf);
     // mark pool of inodes (57 blocks) and super block as not free in bitmap
@@ -343,7 +354,10 @@ int sfs_mkfs() {
     }
     // make root dir
     int is_root = 1;
-    return init_dir(is_root);
+    success =  init_dir(is_root);
+    if(success != -1)
+        return 0;
+    return -1;
 } /* !sfs_mkfs */
 
 /*
@@ -354,13 +368,73 @@ int sfs_mkfs() {
  * Returns: 0 on success, or -1 if an error occurred
  *
  */
-int sfs_mkdir(char *name) {
-    /* call init dir and update the parent's dentry table to have a pointer to
-     * the new directory
-     */
-    // TODO: Implement
-    return -1;
+int sfs_mkdir(char *name)
+{
+    int name_len = strlen(name);
+    char* parent_path = malloc(name_len);
+    if(name[0] == '/')
+        parent_path[0] = '/';
+    char* copy_path = memcpy(malloc(name_len), name, name_len); // don't mangle input
+    char* cur_seg = strtok(copy_path, "/");
+    inode* parent_node = malloc(sizeof(inode));
+    strcat(parent_path, cur_seg);
+    while(resolve_path(parent_path, parent_node) >= 0)
+    {
+        cur_seg = strtok(NULL, "/");
+        if(cur_seg == NULL)
+        {
+            // base case, made it all the way through name
+            free(parent_path);
+            free(copy_path);
+            free(parent_node);
+            return 0;
+        }
+        strcat(parent_path, cur_seg);
+    }
+    int success = dirrific(parent_node, cur_seg);
+    if(success == -1)
+    {
+        free(parent_path);
+        free(copy_path);
+        free(parent_node);
+        return -1;
+    }
+    free(parent_node);
+    free(copy_path);
+    free(parent_path);
+    return sfs_mkdir(name);
 } /* !sfs_mkdir */
+
+
+/*
+ * Adds a dentry to parent node for directory with the name
+ */
+int dirrific(inode* parent_node, char* name)
+{
+    int node_num =  init_dir(0);
+    if(node_num == -1)
+        return -1;
+    inode* node = malloc(sizeof(inode));
+    int success = read_inode(node_num, node);
+    if(success == -1)
+    {
+        free(node);
+        return -1;
+    }
+    success = add_dentry(parent_node, node, name);
+    if(success == -1)
+    {
+        free(node);
+        return -1;
+    }
+    return 0;
+}
+
+
+
+
+
+
 
 /*
  * sfs_fcd: attempts to change current directory to named directory
@@ -389,15 +463,56 @@ int sfs_fcd(char* name) {
  *
  */
 int sfs_ls(FILE* f) {
-    /* We don't what the purpose of f is.
-     * Right now we're going to just list all the files and folders in the cwd.
-     *
-     * To do this we look at every block pointer that is used and print the name of
-     * every dentry.
-     */
-    // TODO: Implement
-    return -1;
+    inode* cwd_node = file_table[cwd_index]->node;
+    return write_ls(f, cwd_node);
 } /* !sfs_ls */
+
+
+
+/*
+ * Writes dentry names of parent to file ptr
+ */
+int
+write_ls(FILE* f, inode* parent)
+{
+    int max_dentries = -1 * parent->size_count;
+    int num_dentries = 0;
+    int loop_limit;
+    int block_index = -1;
+    // check dentries in direct inode blocks
+    while(num_dentries <= max_dentries)
+    {
+        block_index += 1;
+        int diff = max_dentries - num_dentries;
+        if(diff > DENTRIES_PER_BLOCK)
+            loop_limit = DENTRIES_PER_BLOCK;
+        else
+            loop_limit = diff;
+
+        num_dentries += loop_limit;
+
+        int sector_num = sector_for_block(block_index, parent);
+        void* sector_buf = malloc(SD_SECTORSIZE);
+        int success = safe_read(sector_num, sector_buf);
+        if(success == -1)
+        {
+            free(sector_buf);
+            return -1;
+        }
+        dentry* dentries = (dentry*)sector_buf;
+        int i = 0;
+        for(i=0; i < loop_limit; i++)
+        {
+
+            if(strcmp(dentries[i].f_name, ".") == 0 || \
+                    strcmp(dentries[i].f_name, "..") == 0)
+                continue;
+            fprintf(f, "%s\n", dentries[i].f_name);
+            free(sector_buf);
+        }
+    }
+    return 0;
+}
 
 /*
  * sfs_fopen: convert a pathname into a file descriptor. When the call
@@ -426,26 +541,53 @@ int sfs_fopen(char* name) {
         int name_len = strlen(name);
         char* copy_path = memcpy(malloc(name_len), name, name_len); // don't mangle input
         char* cur_seg = strtok(copy_path, "/");
+        char* prev_seg = malloc(name_len);
         char* parent_path = malloc(name_len);
         while(cur_seg != NULL)
         {
-            strcat(parent_path, cur_seg);
+            strcpy(prev_seg,cur_seg);
             cur_seg = strtok(NULL, "/");
+            if(cur_seg != NULL)
+                strcat(parent_path, cur_seg);
         }
         free(copy_path);
         inode* parent_node = malloc(sizeof(inode));
         int success = resolve_path(parent_path, parent_node);
         if (success == -1)
         {
+            free(parent_node);
+            free(prev_seg);
             free(parent_path);
             return -1;
         }
         else if(success == -2)
-            printf("NESTED NON-EXISTING PATHS!\n");
+        {
+            success = sfs_mkdir(parent_path);
+            if(success == -1)
+            {
+                free(parent_node);
+                free(prev_seg);
+                free(parent_path);
+                return -1;
+            }
+            success = resolve_path(parent_path, parent_node);
+            if(success == -1)
+            {
+                free(parent_node);
+                free(prev_seg);
+                free(parent_path);
+                return -1;
+            }
+        }
+
 
         node = pop_free_inode();
-        add_dentry(parent_node, node, cur_seg);
-
+        success = add_dentry(parent_node, node, prev_seg);
+        free(prev_seg);
+        free(parent_path);
+        free(parent_node);
+        if(success == -1)
+            return -1;
     }
     open_file* f = malloc(sizeof(open_file));
     f->rw_ptr = 0;
@@ -459,6 +601,7 @@ int
 add_dentry(inode* parent, inode* child, char* name)
 {
     int dentries_in_use = parent->size_count * -1;
+    printf("%d\n", dentries_in_use);
     int block_addr;
     int success;
     // Make sure there's room in the current block
@@ -525,10 +668,9 @@ add_dentry(inode* parent, inode* child, char* name)
             }
             write_to_offset(single_indirect_block, \
                     single_ind_offset*sizeof(int), &block_addr, sizeof(int));
+            // add a new indirect block, zero it out and add a dentry to it
         }
 
-        write_inode(parent->next_inode_num, (void*)parent);
-        // add a new indirect block, zero it out and add a dentry to it
     }
     else
     {
@@ -544,9 +686,13 @@ add_dentry(inode* parent, inode* child, char* name)
         free(buf);
         return -1;
     }
+
+    parent->size_count--;
+    write_inode(parent->next_inode_num, (void*)parent);
+
     dentry* dentry_list = (dentry *)buf;
     int i = 0;
-    while(dentry_list + i != NULL)
+    while(dentry_list[i].f_name[0] != '\0')
     {
         i++;
     }
@@ -583,6 +729,11 @@ next_index(void)
 int
 resolve_path(char* path, void* inode_buf)
 {
+    if(strcmp(path,"") == 0)
+    {
+        memcpy(inode_buf,(void*)file_table[cwd_index]->node,sizeof(inode));
+        return 0;
+    }
     int success;
     inode* current = (inode*)malloc(sizeof(inode));
     if(path[0] == '/')
