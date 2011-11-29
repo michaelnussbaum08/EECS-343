@@ -1,4 +1,4 @@
-Resume with file path translation, maybe?
+Resume with debugging add_dentry for file file00000
 
 Superblock has free inode pointer and 250 byte (2000 bit) bitmap
 

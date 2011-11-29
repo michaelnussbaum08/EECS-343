@@ -33,7 +33,8 @@ static open_file* file_table[MAX_FILES];
 static int cwd_index;
 const int DENTRIES_PER_BLOCK = SD_SECTORSIZE / sizeof(dentry);
 
-
+int
+add_block(inode* node);
 int read_write(int fileID, char* buffer, int length, int read);
 int dirrific(inode* parent_node, char* name);
 int
@@ -545,16 +546,24 @@ int sfs_fopen(char* name) {
         char* cur_seg = strtok(copy_path, "/");
         char* prev_seg = malloc(name_len);
         char* parent_path = malloc(name_len);
+        int parent_path_set = 0;
         while(cur_seg != NULL)
         {
             strcpy(prev_seg,cur_seg);
             cur_seg = strtok(NULL, "/");
             if(cur_seg != NULL)
+            {
                 strcat(parent_path, cur_seg);
+                parent_path_set = 1;
+            }
         }
         free(copy_path);
         inode* parent_node = malloc(sizeof(inode));
-        int success = resolve_path(parent_path, parent_node);
+        int success = 0;
+        if(parent_path_set == 1)
+            success = resolve_path(parent_path, parent_node);
+        else
+            memcpy(parent_node, file_table[cwd_index]->node, sizeof(node));
         if (success == -1)
         {
             free(parent_node);
@@ -601,8 +610,19 @@ int sfs_fopen(char* name) {
 
 
 int
-add_block(inode* node, int new_block_index)
+add_block(inode* node)
 {
+    int is_dir = 0;
+    int new_block_index;
+    if(node->size_count < 0)
+    {
+        new_block_index = ((node->size_count * -1) / DENTRIES_PER_BLOCK);
+        is_dir = 1;
+    } else
+    {
+        new_block_index = node->size_count;
+    }
+
     int success;
     int block_addr;
     success = get_block(&block_addr);
@@ -668,7 +688,8 @@ add_block(inode* node, int new_block_index)
     }
     // NOTE: if you end up using this for add_dentry then you need a switch
     // here
-    node->size_count++;
+    if(is_dir == 0)
+        node->size_count++;
     write_inode(node->next_inode_num, (void*)node);
     return block_addr;
 }
@@ -681,74 +702,12 @@ add_dentry(inode* parent, inode* child, char* name)
     int dentries_in_use = parent->size_count * -1;
     printf("%d\n", dentries_in_use);
     int block_addr;
-    int success;
     // Make sure there's room in the current block
     if(dentries_in_use % DENTRIES_PER_BLOCK == 0)
     {
-        success = get_block(&block_addr);
-        if(success == -1)
+        block_addr = add_block(parent);
+        if(block_addr == -1)
             return -1;
-        int new_block_index = dentries_in_use / DENTRIES_PER_BLOCK;
-        if(new_block_index < DIRECT_BLOCKS)
-        {
-            parent->direct[new_block_index] = block_addr;
-        } else if(new_block_index < (DIRECT_BLOCKS + INDIRECT_BLOCK_SIZE))
-        {
-            int single_indirect_block;
-            if(new_block_index == DIRECT_BLOCKS)
-            {
-                success = get_block(&single_indirect_block);
-                if(success == -1)
-                    return -1;
-                parent->single_indirect = single_indirect_block;
-            }
-            write_to_offset(parent->single_indirect, \
-                    ((new_block_index - DIRECT_BLOCKS) * sizeof(int)), \
-                    &block_addr, sizeof(int));
-        } else
-        {
-            // in addition to checking whether the single indirect is a new
-            // page we need to check whether the double indirect is a new page
-            int single_indirect_block;
-            int double_indirect_block;
-            if(new_block_index == DIRECT_BLOCKS + INDIRECT_BLOCK_SIZE)
-            {
-                success = get_block(&double_indirect_block);
-                if(success == -1)
-                    return -1;
-                parent->double_indirect = double_indirect_block;
-            }
-
-
-            int double_ind_offset = (new_block_index - \
-                    (DIRECT_BLOCKS + INDIRECT_BLOCK_SIZE)) / INDIRECT_BLOCK_SIZE;
-            int single_ind_offset = (new_block_index - \
-                    (DIRECT_BLOCKS + INDIRECT_BLOCK_SIZE)) % INDIRECT_BLOCK_SIZE;
-
-            if(((new_block_index - DIRECT_BLOCKS) % INDIRECT_BLOCK_SIZE) == 0)
-            {
-               success = get_block(&single_indirect_block);
-               if(success == -1)
-                   return -1;
-               write_to_offset(parent->double_indirect, double_ind_offset * sizeof(int), \
-                       &single_indirect_block, sizeof(int));
-            } else
-            {//find single_indirect_block
-                void *buf = malloc(SD_SECTORSIZE);
-                success = safe_read(parent->double_indirect, buf);
-                if(success == -1)
-                {
-                    free(buf);
-                    return -1;
-                }
-                int* double_ind_sector = (int *)buf;
-                single_indirect_block = double_ind_sector[double_ind_offset];
-            }
-            write_to_offset(single_indirect_block, \
-                    single_ind_offset*sizeof(int), &block_addr, sizeof(int));
-            // add a new indirect block, zero it out and add a dentry to it
-        }
-
     }
     else
     {
@@ -758,7 +717,7 @@ add_dentry(inode* parent, inode* child, char* name)
         block_addr = sector_for_block(block_index, parent);
     }
     void *buf = malloc(SD_SECTORSIZE);
-    success = safe_read(block_addr, buf);
+    int success = safe_read(block_addr, buf);
     if(success == -1)
     {
         free(buf);
@@ -1046,8 +1005,14 @@ int read_write(int fileID, char* buffer, int length, int read)
     open_file* f = file_table[fileID];
     int start_block = f->rw_ptr / SD_SECTORSIZE;
     int start_offset = f->rw_ptr % SD_SECTORSIZE;
-    int end_block = (f->rw_ptr + length) / SD_SECTORSIZE;
     int end_offset = (f->rw_ptr + length) % SD_SECTORSIZE;
+    int end_block = (f->rw_ptr + length) / SD_SECTORSIZE;
+    if(end_offset == 0)
+    {
+        end_block -= 1;
+        end_offset = SD_SECTORSIZE;
+    }
+
     int block_num;
     int block_addr;
     void* sec_buf = malloc(SD_SECTORSIZE);
@@ -1061,7 +1026,7 @@ int read_write(int fileID, char* buffer, int length, int read)
     {
         if(read != 1 && block_num >= f->node->size_count)
         {
-            success = add_block(f->node, f->node->size_count);
+            success = add_block(f->node);
             if(success == -1)
                 return -1;
             block_addr = success;
@@ -1083,6 +1048,8 @@ int read_write(int fileID, char* buffer, int length, int read)
             copy_size = length;
         else if(block_num == end_block)
             copy_size = end_offset;
+        else if(block_num == start_block)
+            copy_size = SD_SECTORSIZE - start_offset;
         else
             copy_size = SD_SECTORSIZE;
 
@@ -1118,8 +1085,11 @@ int read_write(int fileID, char* buffer, int length, int read)
  *
  */
 int sfs_lseek(int fileID, int position) {
-    // TODO: Implement
-    return -1;
+    open_file* f = file_table[fileID];
+    if(f == NULL)
+        return -1;
+    f->rw_ptr = position;
+    return position;
 } /* !sfs_lseek */
 
 /*
