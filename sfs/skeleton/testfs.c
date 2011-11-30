@@ -248,18 +248,21 @@ int initFSTest() {
  * @return SUCCESS if the test is passed successfully FAIL otherwise.
  */
 int customTest() {
-    int hr = SUCCESS;
-
     FAIL_BRK4(initAndLoadDisk());
     FAIL_BRK4(initFS());
 
-    // TODO: Implement
-
+    int hr = SUCCESS;
+    int fsize, i;
+    char *fileName = "/home/bubba/Documents/work/.pr0n/sumo_wrestlers/..";
+    fsize = 1000 * SD_SECTORSIZE;
+    FAIL_BRK(testFile(fileName, fsize), stdout,
+            "Error: File testing failed for (%s) size (%d)\n", fileName,
+            fsize);
     Fail:
 
     //clean up code goes here
     saveAndCloseDisk();
-    PRINT_RESULTS("!!!!!!!!!Name your test Test");
+    PRINT_RESULTS("Big Nested File Test");
     return hr;
 }
 

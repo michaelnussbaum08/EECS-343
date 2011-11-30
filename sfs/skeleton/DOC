@@ -1,6 +1,8 @@
 To get around disk read and write errors we define two functions, safe_read and
 safe_write, that read/write to the disk until the disk indicates a successful
 update. All of our disk interaction goes through these functions.
+On top of these safe functions we define several functions to read and write
+data structures that often move on and off disk.
 
 We only allocate each inode three direct blocks. This keeps inode size small
 and maximizes disk space utilization at the cost of more reads and writes when
@@ -16,5 +18,4 @@ and easy to program, but imposes a maximum limit on the number of open files.
 In order to easily find the next available index in the file table we zero out
 the memory it occupies and scann through the array until we find an index with
 a null value.
-
 

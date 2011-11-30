@@ -60,7 +60,7 @@ pop_free_inode(void);
 int
 resolve_path(char* path, void* inode_buf);
 int
-inode_index(char* name, inode* parent);
+inode_index(char* name, inode* parent, int delete);
 int
 sector_for_block(int block_index, inode* node);
 int
@@ -434,12 +434,6 @@ int dirrific(inode* parent_node, char* name)
     return 0;
 }
 
-
-
-
-
-
-
 /*
  * sfs_fcd: attempts to change current directory to named directory
  *
@@ -803,7 +797,7 @@ resolve_path(char* path, void* inode_buf)
     int next_inode_addr;
     while(cur_seg != NULL)
     {
-        next_inode_addr = inode_index(cur_seg, current);
+        next_inode_addr = inode_index(cur_seg, current, 0);
         if(next_inode_addr == -1)
         {
             free(current);
@@ -826,7 +820,7 @@ resolve_path(char* path, void* inode_buf)
  * Returns address of name if it's a dentry of parent
  */
 int
-inode_index(char* name, inode* parent)
+inode_index(char* name, inode* parent, int delete)
 {
     int num_dentries = -1 * parent->size_count;
     int loop_limit;
@@ -855,9 +849,18 @@ inode_index(char* name, inode* parent)
         {
             if(strcmp(name, dentries[i].f_name) == 0)
             {
+                if(delete == 1)
+                {
+                    dentries[i].inode_num = '0';
+                    dentries[i].f_name[0] = '0';
+                    safe_write(sector_num, sector_buf);
+                    free(sector_buf);
+                    return 0;
+                }
                 int found = dentries[i].inode_num;
                 free(sector_buf);
                 return found;
+
             }
         }
     }
@@ -1083,6 +1086,24 @@ int sfs_lseek(int fileID, int position) {
  * Returns: 0 on success, or -1 if an error occurred
  */
 int sfs_rm(char *file_name) {
-    // TODO: Implement for extra credit
-    return -1;
+    inode* node = malloc(sizeof(inode));
+    int success = resolve_path(file_name, node);
+    if(success != 0)
+    {
+        free(node);
+        return -1;
+    }
+    dentry* parent_dentry = (dentry*)(node->direct[0] + (2*sizeof(dentry)));
+    inode* parent = malloc(sizeof(inode));
+    success = read_inode(parent_dentry->inode_num, parent);
+    if(success == -1)
+    {
+        free(parent);
+        free(node);
+        return -1;
+    }
+    inode_index(file_name, parent, 1);
+    free(parent);
+    free(node);
+    return 0;
 } /* !sfs_rm */
