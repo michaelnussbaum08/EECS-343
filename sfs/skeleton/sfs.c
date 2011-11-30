@@ -298,7 +298,6 @@ init_dir(int is_root)
 void
 free_file(open_file* f)
 {
-    push_free_inode(f->node);
     free(f);
 }
 
@@ -375,12 +374,14 @@ int sfs_mkdir(char *name)
 {
     int name_len = strlen(name) + 1;
     char* parent_path = malloc(name_len);
+    memset((void*)parent_path, 0, name_len);
     if(name[0] == '/')
         parent_path[0] = '/';
     char* copy_path = memcpy(malloc(name_len), name, name_len); // don't mangle input
     char* cur_seg = strtok(copy_path, "/");
     inode* parent_node = malloc(sizeof(inode));
     strcat(parent_path, cur_seg);
+    memcpy(parent_node, file_table[cwd_index]->node, sizeof(inode));
     while(resolve_path(parent_path, parent_node) >= 0)
     {
         cur_seg = strtok(NULL, "/");
@@ -448,12 +449,25 @@ int dirrific(inode* parent_node, char* name)
  *
  */
 int sfs_fcd(char* name) {
-    /* Either change cwd_index pointer into open file table
-     * or (if we use this representation) set the 0th entry to the file table
-     * to point to the dir indicated by name
-     */
-    // TODO: Implement
-    return -1;
+    inode* node = malloc(sizeof(inode));
+    int success = resolve_path(name, node);
+    if(success != 0)
+    {
+        free(node);
+        return -1;
+    }
+    success = sfs_fclose(cwd_index);
+    if(success == -1)
+    {
+        free(node);
+        return -1;
+    }
+    open_file* f = malloc(sizeof(open_file));
+    f->rw_ptr = 0;
+    f->node = node;
+    int index = next_index();
+    file_table[index] = f;
+    return 0;
 } /* !sfs_fcd */
 
 /*
@@ -482,8 +496,9 @@ write_ls(FILE* f, inode* parent)
     int num_dentries = 0;
     int loop_limit;
     int block_index = -1;
+    void* sector_buf = malloc(SD_SECTORSIZE);
     // check dentries in direct inode blocks
-    while(num_dentries <= max_dentries)
+    while(num_dentries < max_dentries)
     {
         block_index += 1;
         int diff = max_dentries - num_dentries;
@@ -495,7 +510,6 @@ write_ls(FILE* f, inode* parent)
         num_dentries += loop_limit;
 
         int sector_num = sector_for_block(block_index, parent);
-        void* sector_buf = malloc(SD_SECTORSIZE);
         int success = safe_read(sector_num, sector_buf);
         if(success == -1)
         {
@@ -511,9 +525,9 @@ write_ls(FILE* f, inode* parent)
                     strcmp(dentries[i].f_name, "..") == 0)
                 continue;
             fprintf(f, "%s\n", dentries[i].f_name);
-            free(sector_buf);
         }
     }
+    free(sector_buf);
     return 0;
 }
 
@@ -563,7 +577,7 @@ int sfs_fopen(char* name) {
         if(parent_path_set == 1)
             success = resolve_path(parent_path, parent_node);
         else
-            memcpy(parent_node, file_table[cwd_index]->node, sizeof(node));
+            memcpy(parent_node, file_table[cwd_index]->node, sizeof(inode));
         if (success == -1)
         {
             free(parent_node);
@@ -700,7 +714,6 @@ int
 add_dentry(inode* parent, inode* child, char* name)
 {
     int dentries_in_use = parent->size_count * -1;
-    printf("%d\n", dentries_in_use);
     int block_addr;
     // Make sure there's room in the current block
     if(dentries_in_use % DENTRIES_PER_BLOCK == 0)
@@ -756,14 +769,10 @@ next_index(void)
     return i;
 }
 
-
-
-
-//TODO: CHECK BEHAVIOR EMPTY PATH
 /*
  * Reads the inode at path into inode_buf
  *
- * Returns o on success, -1 on failure or -2 if file doesn't exist
+ * Returns 0 on success, -1 on failure or -2 if file doesn't exist
  */
 int
 resolve_path(char* path, void* inode_buf)
@@ -868,7 +877,7 @@ sector_for_block(int block_index, inode* node)
     int found;
     if(block_index < DIRECT_BLOCKS)
         return node->direct[block_index];
-    else if(block_index < (DIRECT_BLOCKS + DENTRIES_PER_BLOCK))
+    else if(block_index < (DIRECT_BLOCKS + INDIRECT_BLOCK_SIZE))
     {
         void* buf = malloc(SD_SECTORSIZE);
         int success = safe_read(node->single_indirect, buf);
@@ -878,7 +887,7 @@ sector_for_block(int block_index, inode* node)
             return -1;
         }
         int* indirect_addresses = (int*)buf;
-        found = indirect_addresses[block_index - 4];
+        found = indirect_addresses[block_index - DIRECT_BLOCKS];
         free(indirect_addresses);
         return found;
     }
@@ -944,44 +953,6 @@ int sfs_fclose(int fileID) {
  */
 int sfs_fread(int fileID, char *buffer, int length) {
     return read_write(fileID, buffer, length, 1);
-    /*
-    open_file* f = file_table[fileID];
-    int start_block = f->rw_ptr / SD_SECTORSIZE;
-    int start_offset = f->rw_ptr % SD_SECTORSIZE;
-    int end_block = (f->rw_ptr + length) / SD_SECTORSIZE;
-    int end_offset = (f->rw_ptr + length) % SD_SECTORSIZE;
-    int block_num;
-    int block_addr;
-    void* sec_buf = malloc(SD_SECTORSIZE);
-    int buffer_offset = 0;
-    int success;
-    int copy_start;
-    int copy_size;
-    for(block_num = start_block; block_num <= end_block; block_num++)
-    {
-        block_addr = node_index(block_num, f->node);
-        success = safe_read(block_addr, sec_buf);
-        if(success == -1)
-        {
-            free(sec_buf);
-            return -1;
-        }
-        if(block_num == start_block)
-            copy_start = start_offset;
-        else
-            copy_start = 0;
-        if(block_num == end_block && block_num == start_block)
-            copy_size = length;
-        else if(block_num == end_block)
-            copy_size = end_offset;
-        else
-            copy_size = SD_SECTORSIZE;
-        memcpy(buffer+buffer_offset, sec_buf+copy_start, copy_size);
-        buffer_offset += copy_size;
-    }
-    f->rw_ptr += length;
-    free(sec_buf);
-    return 0;*/
 } /* !sfs_fread */
 
 
@@ -1002,6 +973,8 @@ int sfs_fwrite(int fileID, char *buffer, int length) {
 
 int read_write(int fileID, char* buffer, int length, int read)
 {
+    if(fileID == cwd_index || fileID < 0 || fileID > MAX_FILES || file_table[fileID] == NULL)
+        return -1;
     open_file* f = file_table[fileID];
     int start_block = f->rw_ptr / SD_SECTORSIZE;
     int start_offset = f->rw_ptr % SD_SECTORSIZE;
@@ -1066,7 +1039,15 @@ int read_write(int fileID, char* buffer, int length, int read)
 
         memcpy(dest, src, copy_size);
         if(read != 1)
+        {
+            inode* node = f->node;
+            if(f->rw_ptr + length > node->byte_size)
+            {
+                node->byte_size = f->rw_ptr + length;
+                write_inode(node->next_inode_num, (void*)node);
+            }
             write_to_offset(block_addr, copy_start, sec_buf, copy_size);
+        }
         buffer_offset += copy_size;
     }
     f->rw_ptr += length;
@@ -1086,6 +1067,8 @@ int read_write(int fileID, char* buffer, int length, int read)
  */
 int sfs_lseek(int fileID, int position) {
     open_file* f = file_table[fileID];
+    if(position < 0 || position >= f->node->byte_size)
+        return -1;
     if(f == NULL)
         return -1;
     f->rw_ptr = position;

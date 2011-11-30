@@ -1,0 +1,20 @@
+To get around disk read and write errors we define two functions, safe_read and
+safe_write, that read/write to the disk until the disk indicates a successful
+update. All of our disk interaction goes through these functions.
+
+We only allocate each inode three direct blocks. This keeps inode size small
+and maximizes disk space utilization at the cost of more reads and writes when
+indirect blocks are used.
+Additionally, to minimize inode overhead the structure has a duel purpose
+size integer. If the inode corressponds to a file then the size indicates the
+number of blocks written. If the inode corresponds to a directory the size is a
+negative number who's absolute value is equal to the number of directory
+entries in the file.
+
+We store our open file data structures in a fixed size array that is efficient
+and easy to program, but imposes a maximum limit on the number of open files.
+In order to easily find the next available index in the file table we zero out
+the memory it occupies and scann through the array until we find an index with
+a null value.
+
+

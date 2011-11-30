@@ -24,7 +24,7 @@
 
 #include "stdio.h"
 
-#define DIRECT_BLOCKS 4
+#define DIRECT_BLOCKS 3
 #define INDIRECT_BLOCK_SIZE 128
 
 extern int sfs_mkfs();
@@ -50,6 +50,7 @@ typedef struct inode_t
     int direct[DIRECT_BLOCKS];
     int single_indirect;
     int double_indirect;
+    int byte_size;
 } inode;
 
 typedef struct dentry_t
